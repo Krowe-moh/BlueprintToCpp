@@ -425,7 +425,7 @@ public static class Program
                     string blueprintDirRel = Path.GetDirectoryName(gameFile.Path);
                     string blueprintDirOutput = Path.Combine(exeDirectory, blueprintDirRel);
                     Directory.CreateDirectory(blueprintDirOutput);
-                    string outputFilePath = Path.Combine(blueprintDirOutput, $"{gameFile.NameWithoutExtension}.cpp");
+                    string outputFilePath = Path.Combine(blueprintDirOutput, $"{gameFile.Name}.cpp");
                     File.WriteAllText(outputFilePath, updatedOutput);
 
                     Console.WriteLine($"Output written to: {outputFilePath}");
