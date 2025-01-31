@@ -100,12 +100,9 @@ public static class Program
                 return;
             }
 
-            var provider = InitializeProvider(pakFolderPath, usmapPath, oodlePath, zlibPath, version);
-
             string exeDirectory = AppDomain.CurrentDomain.BaseDirectory;
 
-            var provider = InitializeProvider(pakFolderPath, usmapPath, oodlePath, version);
-
+            var provider = InitializeProvider(pakFolderPath, usmapPath, oodlePath, zlibPath, version);
             provider.ReadScriptData = true;
             await LoadAesKeysAsync(provider, "https://fortnitecentral.genxgames.gg/api/v1/aes"); // allow users to change the aes url?
 
