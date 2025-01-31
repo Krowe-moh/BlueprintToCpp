@@ -88,10 +88,6 @@ public static class Program
             }
 
             string zlibPath = config.ZlibPath;
-            if (string.IsNullOrEmpty(zlibPath) || zlibPath.Length < 1)
-            {
-                Console.WriteLine("Missing \"ZlibPath\" in the config.json file.");
-            }
 
             EGame version = config.Version;
             if (string.IsNullOrEmpty(version.ToString()) || version.ToString().Length < 1)
