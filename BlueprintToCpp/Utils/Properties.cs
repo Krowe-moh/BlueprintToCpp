@@ -4,47 +4,11 @@ using CUE4Parse.UE4.Assets.Objects.Properties;
 using CUE4Parse.UE4.Objects.Core.Math;
 using CUE4Parse.UE4.Objects.GameplayTags;
 using CUE4Parse.UE4.Objects.UObject;
-using CUE4Parse.UE4.Versions;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
-public class Config
+
+namespace BlueRange.Utils;
+public static class SomeUtils
 {
-    public string PakFolderPath { get; set; }
-    public string BlueprintPath { get; set; }
-    public string OodlePath { get; set; }
-    public string ZlibPath { get; set; }
-    public string UsmapPath { get; set; }
-
-    [JsonConverter(typeof(StringEnumConverter))]
-    public EGame Version { get; set; }
-}
-public static class Utils
-{
-    public static Config LoadConfig(string path)
-    {
-        if (!File.Exists(path))
-        {
-            Console.WriteLine($"Config file created, please modify the values.");
-            var defaultConfig = new Config
-            {
-                PakFolderPath = "",
-                BlueprintPath = "",
-                OodlePath = "",
-                ZlibPath = "",
-                UsmapPath = "",
-                Version = EGame.GAME_UE5_LATEST
-            };
-
-            string jsonTxt = JsonConvert.SerializeObject(defaultConfig, Formatting.Indented);
-            File.WriteAllText(path, jsonTxt);
-            return defaultConfig;
-        }
-
-        string json = File.ReadAllText(path);
-        return JsonConvert.DeserializeObject<Config>(json);
-    }
-
-    public static string GetPrefix(string? type, string? extra = "")
+    public static string GetPrefix(string type, string extra = "")
     {
         return type switch
         {
@@ -72,12 +36,14 @@ public static class Utils
     {
         string typeName = field.GetType().Name;
         int suffixIndex = typeName.IndexOf("Property", StringComparison.Ordinal);
-        if (suffixIndex < 0) return typeName;
+        if (suffixIndex < 0)
+            return typeName;
         return typeName.Substring(1, suffixIndex - 1);
     }
     public static string GetPropertyType(object? property)
     {
-        if (property is null) return "None";
+        if (property is null)
+            return "None";
 
         //Console.WriteLine(property.GetType().Name);
         return property switch
@@ -133,13 +99,14 @@ public static class Utils
             FMapProperty map => $"TMap<{GetPrefix(map.ValueProp.GetType().Name)}{GetPropertyType(map.KeyProp)}, {GetPrefix(map.ValueProp.GetType().Name)}{GetPropertyType(map.ValueProp)}{(map.PropertyFlags.HasFlag(EPropertyFlags.InstancedReference) || property.PropertyFlags.HasFlag(EPropertyFlags.ReferenceParm) || map.PropertyFlags.HasFlag(EPropertyFlags.ContainsInstancedReference) ? "*" : string.Empty)}>",
             FMulticastDelegateProperty mdlgt => $"{mdlgt.SignatureFunction?.Name ?? "UNKNOWN"} (MulticastDelegateProperty)",
             FMulticastInlineDelegateProperty midlgt => $"{midlgt.SignatureFunction?.Name ?? "UNKNOWN"} (MulticastInlineDelegateProperty)",
-            FArrayProperty array => $"TArray<{GetPrefix(array.Inner.GetType().Name)}{GetPropertyType(array.Inner)}{(array.PropertyFlags.HasFlag(EPropertyFlags.InstancedReference) || property.PropertyFlags.HasFlag(EPropertyFlags.ReferenceParm) || array.PropertyFlags.HasFlag(EPropertyFlags.ContainsInstancedReference) || Utils.GetPropertyProperty(array.Inner.GetType().Name) ? "*" : string.Empty)}>",
+            FArrayProperty array => $"TArray<{GetPrefix(array.Inner.GetType().Name)}{GetPropertyType(array.Inner)}{(array.PropertyFlags.HasFlag(EPropertyFlags.InstancedReference) || property.PropertyFlags.HasFlag(EPropertyFlags.ReferenceParm) || array.PropertyFlags.HasFlag(EPropertyFlags.ContainsInstancedReference) || SomeUtils.GetPropertyProperty(array.Inner.GetType().Name) ? "*" : string.Empty)}>",
             _ => GetUnknownFieldType(property)
         };
     }
     public static bool GetPropertyProperty(object? property)
     {
-        if (property is null) return false;
+      if (property is null)
+            return false;
 
         return property switch
         {

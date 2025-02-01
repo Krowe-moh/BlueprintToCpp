@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.7.34024.191
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Main", "BlueprintToCpp\Main.csproj", "{D396BBBB-3C13-43B3-B46A-36F42E952ECD}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BlueRange", "BlueprintToCpp\BlueRange.csproj", "{D396BBBB-3C13-43B3-B46A-36F42E952ECD}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CUE4Parse", "CUE4Parse\CUE4Parse\CUE4Parse.csproj", "{7FE81A48-6CF5-4CA4-A985-8BD436A4775A}"
 EndProject

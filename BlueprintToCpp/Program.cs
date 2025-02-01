@@ -1,31 +1,28 @@
 using System.Text;
-using Newtonsoft.Json.Linq;
-using CUE4Parse.Encryption.Aes;
 using CUE4Parse.FileProvider;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Objects.Engine;
-using CUE4Parse.UE4.Versions;
-using CUE4Parse.Compression;
-using CUE4Parse.MappingsProvider;
 using CUE4Parse.UE4.Kismet;
 using CUE4Parse.UE4.Assets;
-using CUE4Parse.UE4.Objects.Core.Misc;
 using CUE4Parse.UE4.Objects.Core.Math;
 using CUE4Parse.UE4.Assets.Exports.Verse;
 using CUE4Parse.UE4.Assets.Objects;
-using System.Text.RegularExpressions;
 using CUE4Parse.UE4.Assets.Objects.Properties;
 using CUE4Parse.UE4.Objects.GameplayTags;
-using CUE4Parse.Utils;
+using System.Text.RegularExpressions;
+using BlueRange.Services;
+using BlueRange.Settings;
+using BlueRange.Utils;
+using Serilog;
+using Spectre.Console;
 using System.Globalization;
 
-namespace Main;
+namespace BlueRange;
 
 public static class Program
 {
-    private static bool _isVerse;
-
-    /*
+    private static bool _isVerse = false;
+  
     private class StatementInfo
     {
         public int Index { get; set; }
@@ -46,63 +43,31 @@ public static class Program
         }
         return string.Join('.', property.New.Path.Select(n => n.Text)).Replace(" ", "");
     }
+    private static DefaultFileProvider Provider => ApplicationService.CUE4Parse.Provider;
 
     public static async Task Main(string[] args)     {
         try
         {
+            await ApplicationService.Initialize().ConfigureAwait(false);
+            await ApplicationService.CUE4Parse.InitializeAsync().ConfigureAwait(false);
+
+            await AppSettings.Save().ConfigureAwait(false);
+
 #if DEBUG
-                Log.Logger = new LoggerConfiguration().WriteTo.Console(theme: AnsiConsoleTheme.Literate).CreateLogger();
-#endif
-            var config = Utils.LoadConfig("config.json");
-
-            string pakFolderPath = config.PakFolderPath;
-            if (string.IsNullOrEmpty(pakFolderPath) || pakFolderPath.Length < 1)
-            {
-                Console.WriteLine("Please provide a pak folder path in the config.json file.");
-                return;
-            }
-
-            string blueprintPath = config.BlueprintPath;
-            if (string.IsNullOrEmpty(blueprintPath) || blueprintPath.Length < 1)
-            {
-#if TRUE
-                Console.WriteLine(
-                    "No blueprint path specified in the config.json file. Processing all compatible blueprints.");
+            var blueprintPath = "FortniteGame/Content/Athena/Cosmetics/Sprays/BP_SprayDecal.uasset";
 #else
-                Console.WriteLine("Please provide a blueprint path in the config.json file.");
+            var blueprintPath = AnsiConsole.Prompt(new TextPrompt<string>("Please enter the [green]blueprint path[/]:")
+                .PromptStyle("green"));
+#endif
+            var package = await Provider.LoadPackageAsync(blueprintPath).ConfigureAwait(false);
+            if (package is not AbstractUePackage abstractPackage)
+            {
+                Log.Error("Package is not of type AbstractUePackage but instead of type '{0}'", package.GetType());
                 return;
 #endif
             }
 
-            string usmapPath = config.UsmapPath;
-            if (string.IsNullOrEmpty(usmapPath) || usmapPath.Length < 1)
-            {
-                Console.WriteLine("Please provide a usmap path in the config.json file.");
-                return;
-            }
-
-            string oodlePath = config.OodlePath;
-            if (string.IsNullOrEmpty(oodlePath) || oodlePath.Length < 1)
-            {
-                Console.WriteLine("Please provide a oodle path in the config.json file.");
-                return;
-            }
-
-            string zlibPath = config.ZlibPath;
-
-            EGame version = config.Version;
-            if (string.IsNullOrEmpty(version.ToString()) || version.ToString().Length < 1)
-            {
-                Console.WriteLine("Please provide a UE version in the config.json file.");
-                return;
-            }
-
-            string exeDirectory = AppDomain.CurrentDomain.BaseDirectory;
-
-            var provider = InitializeProvider(pakFolderPath, usmapPath, oodlePath, zlibPath, version);
-            provider.ReadScriptData = true;
-            await LoadAesKeysAsync(provider,
-                "https://fortnitecentral.genxgames.gg/api/v1/aes"); // allow users to change the aes url?
+            var outputBuilder = new StringBuilder();
 
             var files = new Dictionary<string, CUE4Parse.FileProvider.Objects.GameFile[]>();
 
@@ -561,61 +526,6 @@ public static class Program
         }
     }
 
-    static DefaultFileProvider InitializeProvider(string pakFolderPath, string usmapPath, string oodlePath, string zlibPath, EGame version)
-    {
-        OodleHelper.Initialize(oodlePath);
-
-        if (!string.IsNullOrEmpty(zlibPath) && zlibPath.Length > 0)
-        {
-            ZlibHelper.Initialize(zlibPath);
-        }
-
-        var provider = new DefaultFileProvider(pakFolderPath, SearchOption.TopDirectoryOnly, true, new VersionContainer(version))
-        {
-            MappingsContainer = new FileUsmapTypeMappingsProvider(usmapPath)
-        };
-        provider.Initialize();
-
-        return provider;
-    }
-
-    static async Task LoadAesKeysAsync(DefaultFileProvider provider, string aesUrl)
-    {
-        string cacheFilePath = "aes.json";
-
-        if (File.Exists(cacheFilePath))
-        {
-            string cachedAesJson = await File.ReadAllTextAsync(cacheFilePath);
-            LoadAesKeysFromJson(provider, cachedAesJson);
-        }
-        else
-        {
-            using var httpClient = new HttpClient();
-            string aesJson = await httpClient.GetStringAsync(aesUrl);
-            await File.WriteAllTextAsync(cacheFilePath, aesJson);
-            LoadAesKeysFromJson(provider, aesJson);
-        }
-
-        provider.PostMount();
-        provider.LoadLocalization();
-    }
-
-    private static void LoadAesKeysFromJson(DefaultFileProvider provider, string aesJson)
-    {
-        var aesData = JObject.Parse(aesJson);
-        string mainKey = aesData["mainKey"]?.ToString() ?? string.Empty;
-        provider.SubmitKey(new FGuid(), new FAesKey(mainKey));
-
-        foreach (var key in aesData["dynamicKeys"]?.ToObject<JArray>() ?? new JArray())
-        {
-            var guid = key["guid"]?.ToString();
-            var aesKey = key["key"]?.ToString();
-            if (!string.IsNullOrEmpty(guid) && !string.IsNullOrEmpty(aesKey))
-            {
-                provider.SubmitKey(new FGuid(guid), new FAesKey(aesKey));
-            }
-        }
-    }
     private static void ProcessExpression(EExprToken token, KismetExpression expression, StringBuilder outputBuilder, bool isParameter = false)
     {
         //_statementIndices.Add(new StatementInfo { Index = expression.StatementIndex, LineNum = Regex.Split(outputBuilder.ToString().Trim(), @"\r?\n|\r").Length });
@@ -706,7 +616,8 @@ public static class Program
                     outputBuilder.Append($"{Utils.GetPrefix(op.StackNode.ResolvedObject.Outer.GetType().Name)}{op.StackNode.ResolvedObject.Outer.Name.ToString().Replace(" ", "")}::{op.StackNode.Name}(");
                     for (int i = 0; i < opp.Length; i++)
                     {
-                        if (opp.Length > 4) outputBuilder.Append("\n\t\t");
+                        if (opp.Length > 4)
+                            outputBuilder.Append("\n\t\t");
                         ProcessExpression(opp[i].Token, opp[i], outputBuilder, true);
                         if (i < opp.Length - 1)
                         {
@@ -732,8 +643,8 @@ public static class Program
                     }
                     for (int i = 0; i < opp.Length; i++)
                     {
-                        if (opp.Length > 4) outputBuilder.Append("\n\t\t");
-
+                      if (opp.Length > 4)
+                            outputBuilder.Append("\n\t\t");
                         ProcessExpression(opp[i].Token, opp[i], outputBuilder, true);
                         if (i < opp.Length - 1)
                         {
@@ -820,7 +731,6 @@ public static class Program
                         KismetExpression element = op.Elements[i];
                         outputBuilder.Append(' ');
                         ProcessExpression(element.Token, element, outputBuilder);
-
                         outputBuilder.Append(i < op.Elements.Length - 1 ? "," : ' ');
                     }
 
@@ -941,7 +851,7 @@ public static class Program
             case EExprToken.EX_CrossInterfaceCast:
             case EExprToken.EX_InterfaceToObjCast:
                 {
-                    EX_CastBase op = (EX_CastBase)expression;
+                    EX_CastBase op = (EX_CastBase) expression;
                     outputBuilder.Append($"Cast<U{op.ClassPtr.Name}*>(");// m?
                     ProcessExpression(op.Target.Token, op.Target, outputBuilder, true);
                     outputBuilder.Append(")");
@@ -949,8 +859,8 @@ public static class Program
                 }
             case EExprToken.EX_StructConst:
                 {
-                    EX_StructConst op = (EX_StructConst)expression;
-                    outputBuilder.Append($"{Utils.GetPrefix(op.Struct.GetType().Name)}{op.Struct.Name}");
+                    EX_StructConst op = (EX_StructConst) expression;
+                    outputBuilder.Append($"{SomeUtils.GetPrefix(op.Struct.GetType().Name)}{op.Struct.Name}");
                     outputBuilder.Append($"(");
                     for (int i = 0; i < op.Properties.Length; i++)
                     {
@@ -997,7 +907,7 @@ public static class Program
                 }
             case EExprToken.EX_BindDelegate:
                 {
-                    EX_BindDelegate op = (EX_BindDelegate)expression;
+                    EX_BindDelegate op = (EX_BindDelegate) expression;
                     outputBuilder.Append("\t\t");
                     ProcessExpression(op.Delegate.Token, op.Delegate, outputBuilder);
                     outputBuilder.Append($".BindUFunction(");
@@ -1017,10 +927,12 @@ public static class Program
                         outputBuilder.Append(".AddDelegate(");
                         ProcessExpression(op.DelegateToAdd.Token, op.DelegateToAdd, outputBuilder);
                         outputBuilder.Append($");\n\n");
-                    } else if (op.Delegate.Token != EExprToken.EX_Context)
+                    }
+                    else if (op.Delegate.Token != EExprToken.EX_Context)
                     {
                         Console.WriteLine($"Issue: EX_AddMulticastDelegate missing info: {op.StatementIndex}, {op.Delegate.Token}");
-                    } else
+                    }
+                    else
                     {
                         //EX_Context opp = (EX_Context) op.Delegate;
                         outputBuilder.Append("\t\t");
@@ -1064,9 +976,9 @@ public static class Program
             case EExprToken.EX_ClearMulticastDelegate: // this also
                 {
                     EX_ClearMulticastDelegate op = (EX_ClearMulticastDelegate) expression;
-                        outputBuilder.Append("\t\t");
-                        ProcessExpression(op.DelegateToClear.Token, op.DelegateToClear, outputBuilder, true);
-                        outputBuilder.Append(".Clear();\n\n");
+                    outputBuilder.Append("\t\t");
+                    ProcessExpression(op.DelegateToClear.Token, op.DelegateToClear, outputBuilder, true);
+                    outputBuilder.Append(".Clear();\n\n");
                     break;
                 }
             case EExprToken.EX_CallMulticastDelegate: // this also
@@ -1089,7 +1001,8 @@ public static class Program
                             }
                         }
                         outputBuilder.Append($");\n\n");
-                    } else if (op.Delegate.Token != EExprToken.EX_Context)
+                    }
+                    else if (op.Delegate.Token != EExprToken.EX_Context)
                     {
                         Console.WriteLine("Issue: EX_CallMulticastDelegate missing info: {0}", op.StatementIndex);
                     }
@@ -1115,7 +1028,7 @@ public static class Program
             case EExprToken.EX_ClassContext:
             case EExprToken.EX_Context:
                 {
-                    EX_Context op = (EX_Context)expression;
+                    EX_Context op = (EX_Context) expression;
                     ProcessExpression(op.ObjectExpression.Token, op.ObjectExpression, outputBuilder, true);
 
                     outputBuilder.Append("->");
@@ -1128,7 +1041,7 @@ public static class Program
                 }
             case EExprToken.EX_Context_FailSilent:
                 {
-                    EX_Context op = (EX_Context)expression;
+                    EX_Context op = (EX_Context) expression;
                     outputBuilder.Append("\t\t");
                     ProcessExpression(op.ObjectExpression.Token, op.ObjectExpression, outputBuilder, true);
                     if (!isParameter)
@@ -1141,7 +1054,7 @@ public static class Program
                 }
             case EExprToken.EX_Let:
                 {
-                    EX_Let op = (EX_Let)expression;
+                    EX_Let op = (EX_Let) expression;
                     if (!isParameter)
                     {
                         outputBuilder.Append("\t\t");
@@ -1161,7 +1074,7 @@ public static class Program
             case EExprToken.EX_LetDelegate:
             case EExprToken.EX_LetMulticastDelegate:
                 {
-                    EX_LetBase op = (EX_LetBase)expression;
+                    EX_LetBase op = (EX_LetBase) expression;
                     if (!isParameter)
                     {
                         outputBuilder.Append("\t\t");
@@ -1215,7 +1128,7 @@ public static class Program
                 break;
             case EExprToken.EX_StructMemberContext:
                 {
-                    EX_StructMemberContext op = (EX_StructMemberContext)expression;
+                    EX_StructMemberContext op = (EX_StructMemberContext) expression;
                     ProcessExpression(op.StructExpression.Token, op.StructExpression, outputBuilder);
                     outputBuilder.Append('.');
                     outputBuilder.Append(ProcessTextProperty(op.Property));
@@ -1234,14 +1147,14 @@ public static class Program
                 }
             case EExprToken.EX_RotationConst:
                 {
-                    EX_RotationConst op = (EX_RotationConst)expression;
+                    EX_RotationConst op = (EX_RotationConst) expression;
                     FRotator value = op.Value;
                     outputBuilder.Append($"FRotator({value.Pitch}, {value.Yaw}, {value.Roll})");
                     break;
                 }
             case EExprToken.EX_VectorConst:
                 {
-                    EX_VectorConst op = (EX_VectorConst)expression;
+                    EX_VectorConst op = (EX_VectorConst) expression;
                     FVector value = op.Value;
                     outputBuilder.Append($"FVector({value.X}, {value.Y}, {value.Z})");
                     break;
