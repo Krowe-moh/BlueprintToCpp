@@ -12,7 +12,6 @@ public class Config
     public string PakFolderPath { get; set; }
     public string BlueprintPath { get; set; }
     public string OodlePath { get; set; }
-    public string ZlibPath { get; set; }
     public string UsmapPath { get; set; }
 
     [JsonConverter(typeof(StringEnumConverter))]
@@ -30,7 +29,6 @@ public static class Utils
                 PakFolderPath = "",
                 BlueprintPath = "",
                 OodlePath = "",
-                ZlibPath = "",
                 UsmapPath = "",
                 Version = EGame.GAME_UE5_LATEST
             };
