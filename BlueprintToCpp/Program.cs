@@ -24,8 +24,7 @@ namespace Main;
 public static class Program
 {
     private static bool _isVerse;
-
-    /*
+    
     private class StatementInfo
     {
         public int Index { get; set; }
@@ -33,7 +32,7 @@ public static class Program
     }
     private static List<StatementInfo> _statementIndices = new List<StatementInfo>();
     private static List<int> jumpCodeOffsets = new List<int>(); // someone please fix labels I beg
-    */
+    
     private static string ProcessTextProperty(FKismetPropertyPointer property)
     {
         if (property.New is null)
@@ -129,8 +128,9 @@ public static class Program
             {
                 Parallel.ForEach(packages, package =>
                 {
-                    try {
-                        if (!package.IsUE4Package) return;
+                    try
+                    {
+                      if (!package.IsUePackage) return;
                     index++;
                     Console.WriteLine($"Processing {package.Path} ({index}/{totalGameFiles})");
                     var pkg = provider.LoadPackage(package);
@@ -506,8 +506,26 @@ public static class Program
                                         outputBuilder.AppendLine(
                                             $"\n\t{returnFunc} {function.Name.Replace(" ", "")}({argsList})\n\t{{");
                                         if (function?.ScriptBytecode != null)
-                                        {
-                                            foreach (KismetExpression property in function.ScriptBytecode)
+                                                {
+                                                    foreach (KismetExpression property in function.ScriptBytecode)
+                                                    {
+                                                        switch (property.Token)
+                                                        {
+                                                            case EExprToken.EX_JumpIfNot:
+                                                                {
+                                                                    EX_JumpIfNot op = (EX_JumpIfNot) property;
+                                                                    jumpCodeOffsets.Add((int)op.CodeOffset);
+                                                                    break;
+                                                                }
+                                                            case EExprToken.EX_Jump:
+                                                                {
+                                                                    EX_Jump op = (EX_Jump) property;
+                                                                    jumpCodeOffsets.Add((int)op.CodeOffset);
+                                                                    break;
+                                                                }
+                                                        }
+                                                    }
+                                                    foreach (KismetExpression property in function.ScriptBytecode)
                                             {
                                                 ProcessExpression(property.Token, property, outputBuilder);
                                             }
@@ -527,22 +545,6 @@ public static class Program
                                     Console.WriteLine($"No Blueprint Found nor Verse set in \"{package.Path}\"");
                                     continue;
                                 }
-
-                                /*var commonOffsets = statementIndices.Select(si => si.Index).Intersect(jumpCodeOffsets).ToList();
-                                if (commonOffsets.Any())
-                                {
-                                    foreach (var offset in commonOffsets)
-                                    {
-                                        var statementInfo = statementIndices.First(si => si.Index == offset);
-                                        var LineIndex = statementInfo.LineNum;
-
-                                        string[] lines = Regex.Split(outputBuilder.ToString().Trim(), @"\r?\n|\r");
-
-                                        outputBuilder = new StringBuilder(string.Join(Environment.NewLine, lines.Take(LineIndex).Concat(new[] { "\t\tLabel_" + offset.ToString() + ":" }).Concat(lines.Skip(LineIndex))
-                                        ));
-
-                                    }
-                                }*/
 
                                 string pattern = $@"\w+placenolder";
                                 string updatedOutput = Regex.Replace(outputBuilder.ToString(), pattern, "nullptr");
@@ -607,7 +609,7 @@ public static class Program
         }
 
         provider.PostMount();
-        provider.LoadLocalization();
+        //provider.LoadLocalization();
     }
 
     private static void LoadAesKeysFromJson(DefaultFileProvider provider, string aesJson)
@@ -628,8 +630,15 @@ public static class Program
     }
     private static void ProcessExpression(EExprToken token, KismetExpression expression, StringBuilder outputBuilder, bool isParameter = false)
     {
-        //_statementIndices.Add(new StatementInfo { Index = expression.StatementIndex, LineNum = Regex.Split(outputBuilder.ToString().Trim(), @"\r?\n|\r").Length });
-        switch (token)
+        if (jumpCodeOffsets.Contains(expression.StatementIndex))
+        {
+            int length = outputBuilder.Length;
+            if (length == 0 || char.IsWhiteSpace(outputBuilder[length - 1]) && char.IsWhiteSpace(outputBuilder[length - 2]))
+            {
+                outputBuilder.Append("\t\tLabel_" + expression.StatementIndex + ":\n");
+            }
+            }
+            switch (token)
         {
             case EExprToken.EX_LetValueOnPersistentFrame:
                 {
@@ -652,6 +661,8 @@ public static class Program
                 {
                     EX_FinalFunction op = (EX_FinalFunction) expression;
                     KismetExpression[] opp = op.Parameters;
+                    //Console.WriteLine(op.StackNode.Index);
+                    //Console.WriteLine(op.StackNode.Name);
                     if (isParameter)
                     {
                         outputBuilder.Append($"{op.StackNode.Name.Replace(" ", "")}(");
@@ -684,11 +695,12 @@ public static class Program
                     KismetExpression[] opp = op.Parameters;
 
                     // ignore this but I use it to Modify bytecode
-                    /*Console.WriteLine(op.StackNode.Index);
-                    if (op.StackNode.Name == "IsShippingBuild")
-                    {
-                        Console.WriteLine("a");
-                    }*/
+                    //Console.WriteLine(op.StackNode.Index);
+                    //Console.WriteLine(op.StackNode.Name);
+                    //if (op.StackNode.Name == "CanRespawnOnStarterIsland")
+                    //{
+                        //Console.WriteLine("a");
+                    //}
                     if (isParameter)
                     {
                         outputBuilder.Append($"{op.StackNode.Name.Replace(" ", "")}(");
@@ -721,6 +733,7 @@ public static class Program
                     KismetExpression[] opp = op.Parameters;
                     outputBuilder.Append(isParameter ? string.Empty : "\t\t");
                     outputBuilder.Append($"{Utils.GetPrefix(op.StackNode.ResolvedObject.Outer.GetType().Name)}{op.StackNode.ResolvedObject.Outer.Name.ToString().Replace(" ", "")}::{op.StackNode.Name}(");
+
                     for (int i = 0; i < opp.Length; i++)
                     {
                         if (opp.Length > 4) outputBuilder.Append("\n\t\t");
@@ -739,6 +752,8 @@ public static class Program
                     EX_VirtualFunction op = (EX_VirtualFunction) expression;
                     KismetExpression[] opp = op.Parameters;
 
+                    //Console.WriteLine(op.VirtualFunctionName.Index);
+                    //Console.WriteLine(op.VirtualFunctionName.PlainText);
                     if (isParameter)
                     {
                         outputBuilder.Append($"{op.VirtualFunctionName.PlainText.Replace(" ", "")}(");
@@ -1198,7 +1213,6 @@ public static class Program
             case EExprToken.EX_JumpIfNot:
                 {
                     EX_JumpIfNot op = (EX_JumpIfNot)expression;
-                    //jumpCodeOffsets.Add((int)op.CodeOffset);
                     outputBuilder.Append("\t\tif (!");
                     ProcessExpression(op.BooleanExpression.Token, op.BooleanExpression, outputBuilder, true);
                     outputBuilder.Append(") \r\n");
@@ -1210,7 +1224,6 @@ public static class Program
             case EExprToken.EX_Jump:
                 {
                     EX_Jump op = (EX_Jump)expression;
-                    //jumpCodeOffsets.Add((int)op.CodeOffset);
                     outputBuilder.Append($"\t\tgoto Label_{op.CodeOffset};\n\n");
                     break;
                 }
