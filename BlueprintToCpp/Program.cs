@@ -861,6 +861,45 @@ public static class Program
                     outputBuilder.Append("};\n\n");
                     break;
                 }
+            case EExprToken.EX_SetSet:
+                {
+                    EX_SetSet op = (EX_SetSet) expression;
+                    outputBuilder.Append("\t\t");
+                    ProcessExpression(op.SetProperty.Token, op.SetProperty, outputBuilder);
+                    outputBuilder.Append(" = ");
+                    outputBuilder.Append("TArray {");
+                    for (int i = 0; i < op.Elements.Length; i++)
+                    {
+                        KismetExpression element = op.Elements[i];
+                        outputBuilder.Append(' ');
+                        ProcessExpression(element.Token, element, outputBuilder);
+
+                        outputBuilder.Append(i < op.Elements.Length - 1 ? "," : ' ');
+                    }
+
+                    outputBuilder.Append(op.Elements.Length < 1 ? "  " : ' ');
+
+                    outputBuilder.Append("};\n\n");
+                    break;
+                }
+            case EExprToken.EX_SetConst:
+                {
+                    EX_SetConst op = (EX_SetConst) expression;
+                    outputBuilder.Append("TArray {");
+                    for (int i = 0; i < op.Elements.Length; i++)
+                    {
+                        KismetExpression element = op.Elements[i];
+                        outputBuilder.Append(' ');
+                        ProcessExpression(element.Token, element, outputBuilder, true);
+
+                        outputBuilder.Append(i < op.Elements.Length - 1 ? "," : ' ');
+                    }
+
+                    outputBuilder.Append(op.Elements.Length < 1 ? "  " : ' ');
+
+                    outputBuilder.Append("};\n\n");
+                    break;
+                }
             case EExprToken.EX_SetMap:
                 {
                     EX_SetMap op = (EX_SetMap) expression;
@@ -877,7 +916,33 @@ public static class Program
                         if (i < op.Elements.Length - 1)
                         {
                             outputBuilder.Append(element.Token == EExprToken.EX_InstanceVariable ? ": " : ", ");
-                        } else
+                        }
+                        else
+                        {
+                            outputBuilder.Append(' ');
+                        }
+                    }
+
+                    if (op.Elements.Length < 1)
+                        outputBuilder.Append("  ");
+                    outputBuilder.Append("}\n");
+                    break;
+                }
+            case EExprToken.EX_MapConst:
+                {
+                    EX_MapConst op = (EX_MapConst) expression;
+                    outputBuilder.Append("TMap {");
+                    for (int i = 0; i < op.Elements.Length; i++)
+                    {
+                        var element = op.Elements[i];
+                        outputBuilder.Append(' ');
+                        ProcessExpression(element.Token, element, outputBuilder, true);// sometimes the start of an array is a byte not a variable
+
+                        if (i < op.Elements.Length - 1)
+                        {
+                            outputBuilder.Append(element.Token == EExprToken.EX_InstanceVariable ? ": " : ", ");
+                        }
+                        else
                         {
                             outputBuilder.Append(' ');
                         }
@@ -1311,12 +1376,14 @@ public static class Program
             case EExprToken.EX_IntConst: outputBuilder.Append(((EX_IntConst)expression).Value.ToString()); break;
             case EExprToken.EX_PropertyConst: outputBuilder.Append(ProcessTextProperty(((EX_PropertyConst)expression).Property)); break;
             case EExprToken.EX_StringConst: outputBuilder.Append($"\"{((EX_StringConst)expression).Value}\""); break;
+            case EExprToken.EX_FieldPathConst: ProcessExpression(((EX_FieldPathConst) expression).Value.Token, ((EX_FieldPathConst)expression).Value, outputBuilder); break;
             case EExprToken.EX_Int64Const: outputBuilder.Append(((EX_Int64Const)expression).Value.ToString()); break;
             case EExprToken.EX_UInt64Const: outputBuilder.Append(((EX_UInt64Const)expression).Value.ToString()); break;
             case EExprToken.EX_SkipOffsetConst: outputBuilder.Append(((EX_SkipOffsetConst)expression).Value.ToString()); break;
             case EExprToken.EX_FloatConst: outputBuilder.Append(((EX_FloatConst)expression).Value.ToString(CultureInfo.GetCultureInfo("en-US"))); break;
             case EExprToken.EX_BitFieldConst: outputBuilder.Append(((EX_BitFieldConst)expression).ConstValue); break;
             case EExprToken.EX_UnicodeStringConst: outputBuilder.Append(((EX_UnicodeStringConst)expression).Value); break;
+            case EExprToken.EX_InstanceDelegate: outputBuilder.Append($"\"{((EX_InstanceDelegate) expression).FunctionName}\""); break;
             case EExprToken.EX_EndOfScript: case EExprToken.EX_EndParmValue: outputBuilder.Append("\t}\n"); break;
             case EExprToken.EX_NoObject: case EExprToken.EX_NoInterface: outputBuilder.Append("nullptr"); break;
             case EExprToken.EX_IntOne: outputBuilder.Append(1); break;
