@@ -18,6 +18,7 @@ using CUE4Parse.UE4.Assets.Objects.Properties;
 using CUE4Parse.UE4.Objects.GameplayTags;
 using CUE4Parse.Utils;
 using System.Globalization;
+using System.Linq.Expressions;
 
 namespace Main;
 
@@ -105,22 +106,21 @@ public static class Program
 
             var files = new Dictionary<string, CUE4Parse.FileProvider.Objects.GameFile[]>();
 
-            if (string.IsNullOrEmpty(blueprintPath) || blueprintPath.Length < 1)
+            bool isFile = provider.Files.ContainsKey(blueprintPath);
+            if (isFile)
             {
-                files = provider.Files.Values
-                    .GroupBy(it => it.Path.SubstringBeforeLast('/'))
-                    .ToDictionary(g => g.Key, g => g.ToArray());
+                files[blueprintPath] = new[] { provider.Files[blueprintPath] };
             }
             else
             {
-                if (provider.Files.ContainsKey(blueprintPath))
-                {
-                    files[blueprintPath] = new[] { provider.Files[blueprintPath] };
-                }
+                files = provider.Files.Values
+                 .Where(it => it.Path.StartsWith(blueprintPath + "/"))
+                 .GroupBy(it => it.Path.SubstringBeforeLast('/'))
+                 .ToDictionary(g => g.Key, g => g.ToArray());
             }
 
             int index = -1;
-            int totalGameFiles = files.Count;
+            int totalGameFiles = files.Sum(kv => kv.Value.Length);
 
 
             // loop from https://github.com/FabianFG/CUE4Parse/blob/master/CUE4Parse.Example/Exporter.cs#L104
@@ -475,7 +475,38 @@ public static class Program
                                         .ThenBy(f => f.Name.ToString())
                                         .ToList();
 
-                                    foreach (var function in functions)
+                                            foreach (var function in functions.AsEnumerable().Reverse())
+                                            {
+                                                if (function?.ScriptBytecode == null)
+                                                    continue;
+
+                                                foreach (var property in function.ScriptBytecode)
+                                                {
+                                                    switch (property.Token)
+                                                    {
+                                                        case EExprToken.EX_JumpIfNot:
+                                                            jumpCodeOffsets.Add((int) ((EX_JumpIfNot) property).CodeOffset);
+                                                            break;
+
+                                                        case EExprToken.EX_Jump:
+                                                            jumpCodeOffsets.Add((int) ((EX_Jump) property).CodeOffset);
+                                                            break;
+
+                                                        case EExprToken.EX_LocalFinalFunction:
+                                                            {
+                                                                EX_FinalFunction op = (EX_FinalFunction) property;
+                                                                var opp = op.Parameters;
+                                                                if (opp.Length == 1 && opp[0] is EX_IntConst intConst)
+                                                                    jumpCodeOffsets.Add(intConst.Value);
+                                                                break;
+                                                            }
+                                                    }
+                                                }
+                                            }
+
+
+
+                                            foreach (var function in functions)
                                     {
                                         string argsList = "";
                                         string returnFunc = "void";
@@ -507,24 +538,6 @@ public static class Program
                                             $"\n\t{returnFunc} {function.Name.Replace(" ", "")}({argsList})\n\t{{");
                                         if (function?.ScriptBytecode != null)
                                                 {
-                                                    foreach (KismetExpression property in function.ScriptBytecode)
-                                                    {
-                                                        switch (property.Token)
-                                                        {
-                                                            case EExprToken.EX_JumpIfNot:
-                                                                {
-                                                                    EX_JumpIfNot op = (EX_JumpIfNot) property;
-                                                                    jumpCodeOffsets.Add((int)op.CodeOffset);
-                                                                    break;
-                                                                }
-                                                            case EExprToken.EX_Jump:
-                                                                {
-                                                                    EX_Jump op = (EX_Jump) property;
-                                                                    jumpCodeOffsets.Add((int)op.CodeOffset);
-                                                                    break;
-                                                                }
-                                                        }
-                                                    }
                                                     foreach (KismetExpression property in function.ScriptBytecode)
                                             {
                                                 ProcessExpression(property.Token, property, outputBuilder);
