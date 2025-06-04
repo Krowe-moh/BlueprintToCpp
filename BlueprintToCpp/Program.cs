@@ -107,6 +107,12 @@ public static class Program
             var files = new Dictionary<string, CUE4Parse.FileProvider.Objects.GameFile[]>();
 
             bool isFile = provider.Files.ContainsKey(blueprintPath);
+            if (string.IsNullOrEmpty(blueprintPath))
+            {
+                files = provider.Files.Values
+                    .GroupBy(it => it.Path.SubstringBeforeLast('/'))
+                    .ToDictionary(g => g.Key, g => g.ToArray());
+            } else
             if (isFile)
             {
                 files[blueprintPath] = new[] { provider.Files[blueprintPath] };
@@ -1308,15 +1314,19 @@ public static class Program
             // Static expressions
 
             case EExprToken.EX_TextConst:
-                if (expression is EX_TextConst textConst)
                 {
-                    if (textConst.Value is FScriptText { SourceString: { } scriptTextSource })
+                    EX_TextConst op = (EX_TextConst) expression;
+
+                    if (op.Value is FScriptText scriptText)
                     {
-                        ProcessExpression(scriptTextSource.Token, scriptTextSource, outputBuilder, true); // cursed sometimes will need to be correctly done
+                        if (scriptText.SourceString == null)
+                        {
+                            outputBuilder.Append("nullptr");
+                        } else ProcessExpression(scriptText.SourceString.Token, scriptText.SourceString, outputBuilder, true);
                     }
                     else
                     {
-                        outputBuilder.Append(textConst.Value);
+                        outputBuilder.Append(op.Value);
                     }
                 }
                 break;
@@ -1328,7 +1338,6 @@ public static class Program
                     outputBuilder.Append(ProcessTextProperty(op.Property));
                     break;
                 }
-
             case EExprToken.EX_Return:
                 {
                     EX_Return op = (EX_Return)expression;
