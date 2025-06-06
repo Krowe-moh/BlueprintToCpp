@@ -19,6 +19,7 @@ using CUE4Parse.UE4.Objects.GameplayTags;
 using CUE4Parse.Utils;
 using System.Globalization;
 using System.Linq.Expressions;
+using CUE4Parse.FileProvider.Objects;
 
 namespace Main;
 
@@ -31,8 +32,6 @@ public static class Program
         public int Index { get; set; }
         public int LineNum { get; set; }
     }
-    private static List<StatementInfo> _statementIndices = new List<StatementInfo>();
-    private static List<int> jumpCodeOffsets = new List<int>(); // someone please fix labels I beg
     
     private static string ProcessTextProperty(FKismetPropertyPointer property)
     {
@@ -110,19 +109,25 @@ public static class Program
             if (string.IsNullOrEmpty(blueprintPath))
             {
                 files = provider.Files.Values
-                    .GroupBy(it => it.Path.SubstringBeforeLast('/'))
+                    .Where(f => (f.Path.EndsWith(".uasset") || f.Path.EndsWith(".umap")) && !f.Path.Contains(".o."))
+                    .GroupBy(f => f.Path.SubstringBeforeLast('/'))
                     .ToDictionary(g => g.Key, g => g.ToArray());
-            } else
-            if (isFile)
+            }
+            else if (isFile)
             {
-                files[blueprintPath] = new[] { provider.Files[blueprintPath] };
+                files = new Dictionary<string, GameFile[]>
+                {
+                    [blueprintPath] = new[] { provider.Files[blueprintPath] }
+                };
             }
             else
             {
                 files = provider.Files.Values
-                 .Where(it => it.Path.StartsWith(blueprintPath + "/"))
-                 .GroupBy(it => it.Path.SubstringBeforeLast('/'))
-                 .ToDictionary(g => g.Key, g => g.ToArray());
+                    .Where(f => f.Path.StartsWith(blueprintPath + "/") &&
+                               (f.Path.EndsWith(".uasset") || f.Path.EndsWith(".umap")) &&
+                               !f.Path.Contains(".o."))
+                    .GroupBy(f => f.Path.SubstringBeforeLast('/'))
+                    .ToDictionary(g => g.Key, g => g.ToArray());
             }
 
             int index = -1;
@@ -481,6 +486,8 @@ public static class Program
                                         .ThenBy(f => f.Name.ToString())
                                         .ToList();
 
+                                            var jumpCodeOffsets = new List<int>();
+
                                             foreach (var function in functions.AsEnumerable().Reverse())
                                             {
                                                 if (function?.ScriptBytecode == null)
@@ -546,7 +553,7 @@ public static class Program
                                                 {
                                                     foreach (KismetExpression property in function.ScriptBytecode)
                                             {
-                                                ProcessExpression(property.Token, property, outputBuilder);
+                                                ProcessExpression(property.Token, property, outputBuilder, jumpCodeOffsets);
                                             }
                                         }
                                         else
@@ -555,6 +562,7 @@ public static class Program
                                                 "\n\t // This function does not have Bytecode \n\n");
                                             outputBuilder.Append("\t}\n");
                                         }
+                                        jumpCodeOffsets.Clear();
                                     }
 
                                     outputBuilder.Append("\n\n}");
@@ -647,7 +655,7 @@ public static class Program
             }
         }
     }
-    private static void ProcessExpression(EExprToken token, KismetExpression expression, StringBuilder outputBuilder, bool isParameter = false)
+    private static void ProcessExpression(EExprToken token, KismetExpression expression, StringBuilder outputBuilder, List<int> jumpCodeOffsets, bool isParameter = false)
     {
         if (jumpCodeOffsets.Contains(expression.StatementIndex))
         {
@@ -699,7 +707,7 @@ public static class Program
                     {
                         if (opp.Length > 4)
                             outputBuilder.Append("\n\t\t");
-                        ProcessExpression(opp[i].Token, opp[i], outputBuilder, true);
+                        ProcessExpression(opp[i].Token, opp[i], outputBuilder, jumpCodeOffsets, true);
                         if (i < opp.Length - 1)
                         {
                             outputBuilder.Append(", ");
@@ -737,7 +745,7 @@ public static class Program
                     {
                         if (opp.Length > 4)
                             outputBuilder.Append("\n\t\t");
-                        ProcessExpression(opp[i].Token, opp[i], outputBuilder, true);
+                        ProcessExpression(opp[i].Token, opp[i], outputBuilder, jumpCodeOffsets, true);
                         if (i < opp.Length - 1)
                         {
                             outputBuilder.Append(", ");
@@ -756,7 +764,7 @@ public static class Program
                     for (int i = 0; i < opp.Length; i++)
                     {
                         if (opp.Length > 4) outputBuilder.Append("\n\t\t");
-                        ProcessExpression(opp[i].Token, opp[i], outputBuilder, true);
+                        ProcessExpression(opp[i].Token, opp[i], outputBuilder, jumpCodeOffsets, true);
                         if (i < opp.Length - 1)
                         {
                             outputBuilder.Append(", ");
@@ -785,7 +793,7 @@ public static class Program
                     {
                         if (opp.Length > 4) outputBuilder.Append("\n\t\t");
 
-                        ProcessExpression(opp[i].Token, opp[i], outputBuilder, true);
+                        ProcessExpression(opp[i].Token, opp[i], outputBuilder, jumpCodeOffsets, true);
                         if (i < opp.Length - 1)
                         {
                             outputBuilder.Append(", ");
@@ -803,7 +811,7 @@ public static class Program
                     }
                     else if (op.CodeOffsetExpression is EX_CallMath oppMath)
                     {
-                        ProcessExpression(oppMath.Token, oppMath, outputBuilder, true);
+                        ProcessExpression(oppMath.Token, oppMath, outputBuilder, jumpCodeOffsets, true);
                     }
                     else
                     {
@@ -815,7 +823,7 @@ public static class Program
                 {
                     EX_PopExecutionFlowIfNot op = (EX_PopExecutionFlowIfNot) expression;
                     outputBuilder.Append("\t\tif (!");
-                    ProcessExpression(op.BooleanExpression.Token, op.BooleanExpression, outputBuilder, true);
+                    ProcessExpression(op.BooleanExpression.Token, op.BooleanExpression, outputBuilder, jumpCodeOffsets, true);
                     outputBuilder.Append(") \r\n");
                     outputBuilder.Append($"\t\t    FlowStack.Pop();\n\n");
                     break;
@@ -836,13 +844,13 @@ public static class Program
                     {
                         outputBuilder.Append("(double)");
                     }
-                    ProcessExpression(op.Target.Token, op.Target, outputBuilder);
+                    ProcessExpression(op.Target.Token, op.Target, outputBuilder, jumpCodeOffsets);
                     break;
                 }
             case EExprToken.EX_InterfaceContext:
                 {
                     EX_InterfaceContext op = (EX_InterfaceContext) expression;
-                    ProcessExpression(op.InterfaceValue.Token, op.InterfaceValue, outputBuilder);
+                    ProcessExpression(op.InterfaceValue.Token, op.InterfaceValue, outputBuilder, jumpCodeOffsets);
                     break;
                 }
             case EExprToken.EX_ArrayConst:
@@ -852,7 +860,7 @@ public static class Program
                     foreach (KismetExpression element in op.Elements)
                     {
                         outputBuilder.Append(' ');
-                        ProcessExpression(element.Token, element, outputBuilder);
+                        ProcessExpression(element.Token, element, outputBuilder, jumpCodeOffsets);
                     }
                     outputBuilder.Append(op.Elements.Length < 1 ? "  " : ' ');
 
@@ -863,14 +871,14 @@ public static class Program
                 {
                     EX_SetArray op = (EX_SetArray) expression;
                     outputBuilder.Append("\t\t");
-                    ProcessExpression(op.AssigningProperty.Token, op.AssigningProperty, outputBuilder);
+                    ProcessExpression(op.AssigningProperty.Token, op.AssigningProperty, outputBuilder, jumpCodeOffsets);
                     outputBuilder.Append(" = ");
                     outputBuilder.Append("TArray {");
                     for (int i = 0; i < op.Elements.Length; i++)
                     {
                         KismetExpression element = op.Elements[i];
                         outputBuilder.Append(' ');
-                        ProcessExpression(element.Token, element, outputBuilder);
+                        ProcessExpression(element.Token, element, outputBuilder, jumpCodeOffsets);
 
                         outputBuilder.Append(i < op.Elements.Length - 1 ? "," : ' ');
                     }
@@ -884,14 +892,14 @@ public static class Program
                 {
                     EX_SetSet op = (EX_SetSet) expression;
                     outputBuilder.Append("\t\t");
-                    ProcessExpression(op.SetProperty.Token, op.SetProperty, outputBuilder);
+                    ProcessExpression(op.SetProperty.Token, op.SetProperty, outputBuilder, jumpCodeOffsets);
                     outputBuilder.Append(" = ");
                     outputBuilder.Append("TArray {");
                     for (int i = 0; i < op.Elements.Length; i++)
                     {
                         KismetExpression element = op.Elements[i];
                         outputBuilder.Append(' ');
-                        ProcessExpression(element.Token, element, outputBuilder);
+                        ProcessExpression(element.Token, element, outputBuilder, jumpCodeOffsets);
 
                         outputBuilder.Append(i < op.Elements.Length - 1 ? "," : ' ');
                     }
@@ -909,7 +917,7 @@ public static class Program
                     {
                         KismetExpression element = op.Elements[i];
                         outputBuilder.Append(' ');
-                        ProcessExpression(element.Token, element, outputBuilder, true);
+                        ProcessExpression(element.Token, element, outputBuilder, jumpCodeOffsets, true);
 
                         outputBuilder.Append(i < op.Elements.Length - 1 ? "," : ' ');
                     }
@@ -923,14 +931,14 @@ public static class Program
                 {
                     EX_SetMap op = (EX_SetMap) expression;
                     outputBuilder.Append("\t\t");
-                    ProcessExpression(op.MapProperty.Token, op.MapProperty, outputBuilder);
+                    ProcessExpression(op.MapProperty.Token, op.MapProperty, outputBuilder, jumpCodeOffsets);
                     outputBuilder.Append(" = ");
                     outputBuilder.Append("TMap {");
                     for (int i = 0; i < op.Elements.Length; i++)
                     {
                         var element = op.Elements[i];
                         outputBuilder.Append(' ');
-                        ProcessExpression(element.Token, element, outputBuilder);// sometimes the start of an array is a byte not a variable
+                        ProcessExpression(element.Token, element, outputBuilder, jumpCodeOffsets);// sometimes the start of an array is a byte not a variable
 
                         if (i < op.Elements.Length - 1)
                         {
@@ -955,7 +963,7 @@ public static class Program
                     {
                         var element = op.Elements[i];
                         outputBuilder.Append(' ');
-                        ProcessExpression(element.Token, element, outputBuilder, true);// sometimes the start of an array is a byte not a variable
+                        ProcessExpression(element.Token, element, outputBuilder, jumpCodeOffsets, true);// sometimes the start of an array is a byte not a variable
 
                         if (i < op.Elements.Length - 1)
                         {
@@ -981,7 +989,7 @@ public static class Program
 
                     if (useTernary)
                     {
-                        ProcessExpression(op.IndexTerm.Token, op.IndexTerm, outputBuilder);
+                        ProcessExpression(op.IndexTerm.Token, op.IndexTerm, outputBuilder, jumpCodeOffsets);
                         outputBuilder.Append(" ? ");
 
                         bool isFirst = true;
@@ -990,7 +998,7 @@ public static class Program
                             if (!isFirst)
                                 outputBuilder.Append(" : ");
 
-                            ProcessExpression(caseItem.CaseTerm.Token, caseItem.CaseTerm, outputBuilder, true);
+                            ProcessExpression(caseItem.CaseTerm.Token, caseItem.CaseTerm, outputBuilder, jumpCodeOffsets, true);
                             isFirst = false;
                         }
 
@@ -999,13 +1007,13 @@ public static class Program
                             if (!isFirst)
                                 outputBuilder.Append(" : ");
 
-                            ProcessExpression(caseItem.CaseTerm.Token, caseItem.CaseTerm, outputBuilder, true);
+                            ProcessExpression(caseItem.CaseTerm.Token, caseItem.CaseTerm, outputBuilder, jumpCodeOffsets, true);
                         }
                     }
                     else
                     {
                         outputBuilder.Append("switch (");
-                        ProcessExpression(op.IndexTerm.Token, op.IndexTerm, outputBuilder);
+                        ProcessExpression(op.IndexTerm.Token, op.IndexTerm, outputBuilder, jumpCodeOffsets);
                         outputBuilder.Append(")\n");
                         outputBuilder.Append("{\n");
 
@@ -1019,13 +1027,13 @@ public static class Program
                             else
                             {
                                 outputBuilder.Append("\t\tcase ");
-                                ProcessExpression(caseItem.CaseIndexValueTerm.Token, caseItem.CaseIndexValueTerm, outputBuilder);
+                                ProcessExpression(caseItem.CaseIndexValueTerm.Token, caseItem.CaseIndexValueTerm, outputBuilder, jumpCodeOffsets);
                                 outputBuilder.Append(":\n");
                             }
 
                             outputBuilder.Append("\t\t{\n");
                             outputBuilder.Append("\t\t    ");
-                            ProcessExpression(caseItem.CaseTerm.Token, caseItem.CaseTerm, outputBuilder);
+                            ProcessExpression(caseItem.CaseTerm.Token, caseItem.CaseTerm, outputBuilder, jumpCodeOffsets);
                             outputBuilder.Append(";\n");
                             outputBuilder.Append("\t\t    break;\n");
                             outputBuilder.Append("\t\t}\n");
@@ -1034,7 +1042,7 @@ public static class Program
                         outputBuilder.Append("\t\tdefault:\n");
                         outputBuilder.Append("\t\t{\n");
                         outputBuilder.Append("\t\t    ");
-                        ProcessExpression(op.DefaultTerm.Token, op.DefaultTerm, outputBuilder);
+                        ProcessExpression(op.DefaultTerm.Token, op.DefaultTerm, outputBuilder, jumpCodeOffsets);
                         outputBuilder.Append("\n\t\t}\n\n");
 
                         outputBuilder.Append("}\n");
@@ -1044,9 +1052,9 @@ public static class Program
             case EExprToken.EX_ArrayGetByRef: // I assume get array with index
                 {
                     EX_ArrayGetByRef op = (EX_ArrayGetByRef) expression; // FortniteGame/Plugins/GameFeatures/FM/PilgrimCore/Content/Player/Components/BP_PilgrimPlayerControllerComponent.uasset
-                    ProcessExpression(op.ArrayVariable.Token, op.ArrayVariable, outputBuilder, true);
+                    ProcessExpression(op.ArrayVariable.Token, op.ArrayVariable, outputBuilder, jumpCodeOffsets, true);
                     outputBuilder.Append("[");
-                    ProcessExpression(op.ArrayIndex.Token, op.ArrayIndex, outputBuilder);
+                    ProcessExpression(op.ArrayIndex.Token, op.ArrayIndex, outputBuilder, jumpCodeOffsets);
                     outputBuilder.Append("]");
                     break;
                 }
@@ -1058,7 +1066,7 @@ public static class Program
                 {
                     EX_CastBase op = (EX_CastBase)expression;
                     outputBuilder.Append($"Cast<U{op.ClassPtr.Name}*>(");// m?
-                    ProcessExpression(op.Target.Token, op.Target, outputBuilder, true);
+                    ProcessExpression(op.Target.Token, op.Target, outputBuilder, jumpCodeOffsets, true);
                     outputBuilder.Append(")");
                     break;
                 }
@@ -1070,7 +1078,7 @@ public static class Program
                     for (int i = 0; i < op.Properties.Length; i++)
                     {
                         var property = op.Properties[i];
-                        ProcessExpression(property.Token, property, outputBuilder);
+                        ProcessExpression(property.Token, property, outputBuilder, jumpCodeOffsets);
                         if (i < op.Properties.Length - 1 && property.Token != EExprToken.EX_ArrayConst)
                             outputBuilder.Append(", ");
                     }
@@ -1114,9 +1122,9 @@ public static class Program
                 {
                     EX_BindDelegate op = (EX_BindDelegate)expression;
                     outputBuilder.Append("\t\t");
-                    ProcessExpression(op.Delegate.Token, op.Delegate, outputBuilder);
+                    ProcessExpression(op.Delegate.Token, op.Delegate, outputBuilder, jumpCodeOffsets);
                     outputBuilder.Append($".BindUFunction(");
-                    ProcessExpression(op.ObjectTerm.Token, op.ObjectTerm, outputBuilder);
+                    ProcessExpression(op.ObjectTerm.Token, op.ObjectTerm, outputBuilder, jumpCodeOffsets);
                     outputBuilder.Append($", \"{op.FunctionName}\"");
                     outputBuilder.Append($");\n\n");
                     break;
@@ -1128,9 +1136,9 @@ public static class Program
                     if (op.Delegate.Token == EExprToken.EX_LocalVariable || op.Delegate.Token == EExprToken.EX_InstanceVariable)
                     {
                         outputBuilder.Append("\t\t");
-                        ProcessExpression(op.Delegate.Token, op.Delegate, outputBuilder, true);
+                        ProcessExpression(op.Delegate.Token, op.Delegate, outputBuilder, jumpCodeOffsets, true);
                         outputBuilder.Append(".AddDelegate(");
-                        ProcessExpression(op.DelegateToAdd.Token, op.DelegateToAdd, outputBuilder);
+                        ProcessExpression(op.DelegateToAdd.Token, op.DelegateToAdd, outputBuilder, jumpCodeOffsets);
                         outputBuilder.Append($");\n\n");
                     } else if (op.Delegate.Token != EExprToken.EX_Context)
                     {
@@ -1139,11 +1147,11 @@ public static class Program
                     {
                         //EX_Context opp = (EX_Context) op.Delegate;
                         outputBuilder.Append("\t\t");
-                        ProcessExpression(op.Delegate.Token, op.Delegate, outputBuilder, true);
+                        ProcessExpression(op.Delegate.Token, op.Delegate, outputBuilder, jumpCodeOffsets, true);
                         //outputBuilder.Append("->");
-                        //ProcessExpression(opp.ContextExpression.Token, opp.ContextExpression, outputBuilder);
+                        //ProcessExpression(opp.ContextExpression.Token, opp.ContextExpression, outputBuilder, jumpCodeOffsets);
                         outputBuilder.Append(".AddDelegate(");
-                        ProcessExpression(op.DelegateToAdd.Token, op.DelegateToAdd, outputBuilder);
+                        ProcessExpression(op.DelegateToAdd.Token, op.DelegateToAdd, outputBuilder, jumpCodeOffsets);
                         outputBuilder.Append($");\n\n");
                     }
                     break;
@@ -1154,9 +1162,9 @@ public static class Program
                     if (op.Delegate.Token == EExprToken.EX_LocalVariable || op.Delegate.Token == EExprToken.EX_InstanceVariable)
                     {
                         outputBuilder.Append("\t\t");
-                        ProcessExpression(op.Delegate.Token, op.Delegate, outputBuilder, true);
+                        ProcessExpression(op.Delegate.Token, op.Delegate, outputBuilder, jumpCodeOffsets, true);
                         outputBuilder.Append(".RemoveDelegate(");
-                        ProcessExpression(op.DelegateToAdd.Token, op.DelegateToAdd, outputBuilder);
+                        ProcessExpression(op.DelegateToAdd.Token, op.DelegateToAdd, outputBuilder, jumpCodeOffsets);
                         outputBuilder.Append($");\n\n");
                     }
                     else if (op.Delegate.Token != EExprToken.EX_Context)
@@ -1167,11 +1175,11 @@ public static class Program
                     {
                         EX_Context opp = (EX_Context) op.Delegate;
                         outputBuilder.Append("\t\t");
-                        ProcessExpression(op.Delegate.Token, op.Delegate, outputBuilder, true);
+                        ProcessExpression(op.Delegate.Token, op.Delegate, outputBuilder, jumpCodeOffsets, true);
                         outputBuilder.Append("->");
-                        ProcessExpression(opp.ContextExpression.Token, opp.ContextExpression, outputBuilder);
+                        ProcessExpression(opp.ContextExpression.Token, opp.ContextExpression, outputBuilder, jumpCodeOffsets);
                         outputBuilder.Append(".RemoveDelegate(");
-                        ProcessExpression(op.DelegateToAdd.Token, op.DelegateToAdd, outputBuilder);
+                        ProcessExpression(op.DelegateToAdd.Token, op.DelegateToAdd, outputBuilder, jumpCodeOffsets);
                         outputBuilder.Append($");\n\n");
                     }
                     break;
@@ -1180,7 +1188,7 @@ public static class Program
                 {
                     EX_ClearMulticastDelegate op = (EX_ClearMulticastDelegate) expression;
                         outputBuilder.Append("\t\t");
-                        ProcessExpression(op.DelegateToClear.Token, op.DelegateToClear, outputBuilder, true);
+                        ProcessExpression(op.DelegateToClear.Token, op.DelegateToClear, outputBuilder, jumpCodeOffsets, true);
                         outputBuilder.Append(".Clear();\n\n");
                     break;
                 }
@@ -1191,13 +1199,13 @@ public static class Program
                     if (op.Delegate.Token == EExprToken.EX_LocalVariable || op.Delegate.Token == EExprToken.EX_InstanceVariable)
                     {
                         outputBuilder.Append("\t\t");
-                        ProcessExpression(op.Delegate.Token, op.Delegate, outputBuilder, true);
+                        ProcessExpression(op.Delegate.Token, op.Delegate, outputBuilder, jumpCodeOffsets, true);
                         outputBuilder.Append(".Call(");
                         for (int i = 0; i < opp.Length; i++)
                         {
                             if (opp.Length > 4)
                                 outputBuilder.Append("\n\t\t");
-                            ProcessExpression(opp[i].Token, opp[i], outputBuilder, true);
+                            ProcessExpression(opp[i].Token, opp[i], outputBuilder, jumpCodeOffsets, true);
                             if (i < opp.Length - 1)
                             {
                                 outputBuilder.Append(", ");
@@ -1211,13 +1219,13 @@ public static class Program
                     else
                     {
                         outputBuilder.Append("\t\t");
-                        ProcessExpression(op.Delegate.Token, op.Delegate, outputBuilder, true);
+                        ProcessExpression(op.Delegate.Token, op.Delegate, outputBuilder, jumpCodeOffsets, true);
                         outputBuilder.Append(".Call(");
                         for (int i = 0; i < opp.Length; i++)
                         {
                             if (opp.Length > 4)
                                 outputBuilder.Append("\n\t\t");
-                            ProcessExpression(opp[i].Token, opp[i], outputBuilder, true);
+                            ProcessExpression(opp[i].Token, opp[i], outputBuilder, jumpCodeOffsets, true);
                             if (i < opp.Length - 1)
                             {
                                 outputBuilder.Append(", ");
@@ -1231,10 +1239,10 @@ public static class Program
             case EExprToken.EX_Context:
                 {
                     EX_Context op = (EX_Context)expression;
-                    ProcessExpression(op.ObjectExpression.Token, op.ObjectExpression, outputBuilder, true);
+                    ProcessExpression(op.ObjectExpression.Token, op.ObjectExpression, outputBuilder, jumpCodeOffsets, true);
 
                     outputBuilder.Append("->");
-                    ProcessExpression(op.ContextExpression.Token, op.ContextExpression, outputBuilder, true);
+                    ProcessExpression(op.ContextExpression.Token, op.ContextExpression, outputBuilder, jumpCodeOffsets, true);
                     if (!isParameter)
                     {
                         outputBuilder.Append(";\n\n");
@@ -1245,11 +1253,11 @@ public static class Program
                 {
                     EX_Context op = (EX_Context)expression;
                     outputBuilder.Append("\t\t");
-                    ProcessExpression(op.ObjectExpression.Token, op.ObjectExpression, outputBuilder, true);
+                    ProcessExpression(op.ObjectExpression.Token, op.ObjectExpression, outputBuilder, jumpCodeOffsets, true);
                     if (!isParameter)
                     {
                         outputBuilder.Append("->");
-                        ProcessExpression(op.ContextExpression.Token, op.ContextExpression, outputBuilder, true);
+                        ProcessExpression(op.ContextExpression.Token, op.ContextExpression, outputBuilder, jumpCodeOffsets, true);
                         outputBuilder.Append($";\n\n");
                     }
                     break;
@@ -1261,9 +1269,9 @@ public static class Program
                     {
                         outputBuilder.Append("\t\t");
                     }
-                    ProcessExpression(op.Variable.Token, op.Variable, outputBuilder, true);
+                    ProcessExpression(op.Variable.Token, op.Variable, outputBuilder, jumpCodeOffsets, true);
                     outputBuilder.Append(" = ");
-                    ProcessExpression(op.Assignment.Token, op.Assignment, outputBuilder, true);
+                    ProcessExpression(op.Assignment.Token, op.Assignment, outputBuilder, jumpCodeOffsets, true);
                     if (!isParameter)
                     {
                         outputBuilder.Append(";\n\n");
@@ -1281,9 +1289,9 @@ public static class Program
                     {
                         outputBuilder.Append("\t\t");
                     }
-                    ProcessExpression(op.Variable.Token, op.Variable, outputBuilder, true);
+                    ProcessExpression(op.Variable.Token, op.Variable, outputBuilder, jumpCodeOffsets, true);
                     outputBuilder.Append(" = ");
-                    ProcessExpression(op.Assignment.Token, op.Assignment, outputBuilder, true);
+                    ProcessExpression(op.Assignment.Token, op.Assignment, outputBuilder, jumpCodeOffsets, true);
                     if (!isParameter || op.Assignment.Token == EExprToken.EX_LocalFinalFunction || op.Assignment.Token == EExprToken.EX_FinalFunction || op.Assignment.Token == EExprToken.EX_CallMath)
                     {
                         outputBuilder.Append($";\n\n");
@@ -1298,7 +1306,7 @@ public static class Program
                 {
                     EX_JumpIfNot op = (EX_JumpIfNot)expression;
                     outputBuilder.Append("\t\tif (!");
-                    ProcessExpression(op.BooleanExpression.Token, op.BooleanExpression, outputBuilder, true);
+                    ProcessExpression(op.BooleanExpression.Token, op.BooleanExpression, outputBuilder, jumpCodeOffsets, true);
                     outputBuilder.Append(") \r\n");
                     outputBuilder.Append("\t\t    goto Label_");
                     outputBuilder.Append(op.CodeOffset);
@@ -1322,7 +1330,7 @@ public static class Program
                         if (scriptText.SourceString == null)
                         {
                             outputBuilder.Append("nullptr");
-                        } else ProcessExpression(scriptText.SourceString.Token, scriptText.SourceString, outputBuilder, true);
+                        } else ProcessExpression(scriptText.SourceString.Token, scriptText.SourceString, outputBuilder, jumpCodeOffsets, true);
                     }
                     else
                     {
@@ -1333,7 +1341,7 @@ public static class Program
             case EExprToken.EX_StructMemberContext:
                 {
                     EX_StructMemberContext op = (EX_StructMemberContext)expression;
-                    ProcessExpression(op.StructExpression.Token, op.StructExpression, outputBuilder);
+                    ProcessExpression(op.StructExpression.Token, op.StructExpression, outputBuilder, jumpCodeOffsets);
                     outputBuilder.Append('.');
                     outputBuilder.Append(ProcessTextProperty(op.Property));
                     break;
@@ -1344,7 +1352,7 @@ public static class Program
                     bool check = op.ReturnExpression.Token == EExprToken.EX_Nothing;
                     outputBuilder.Append($"\t\treturn");
                     if (!check) outputBuilder.Append(' ');
-                    ProcessExpression(op.ReturnExpression.Token, op.ReturnExpression, outputBuilder, true);
+                    ProcessExpression(op.ReturnExpression.Token, op.ReturnExpression, outputBuilder, jumpCodeOffsets, true);
                     outputBuilder.AppendLine(";\n\n");
                     break;
                 }
@@ -1387,7 +1395,7 @@ public static class Program
                 break;
 
             case EExprToken.EX_ByteConst: case EExprToken.EX_IntConstByte: outputBuilder.Append($"0x{((KismetExpression<byte>)expression).Value.ToString("X")}"); break;
-            case EExprToken.EX_SoftObjectConst: ProcessExpression(((EX_SoftObjectConst) expression).Value.Token, ((EX_SoftObjectConst) expression).Value, outputBuilder); break;
+            case EExprToken.EX_SoftObjectConst: ProcessExpression(((EX_SoftObjectConst) expression).Value.Token, ((EX_SoftObjectConst) expression).Value, outputBuilder, jumpCodeOffsets); break;
             case EExprToken.EX_DoubleConst:
             {
                 double value = ((EX_DoubleConst)expression).Value;
@@ -1398,7 +1406,7 @@ public static class Program
             case EExprToken.EX_IntConst: outputBuilder.Append(((EX_IntConst)expression).Value.ToString()); break;
             case EExprToken.EX_PropertyConst: outputBuilder.Append(ProcessTextProperty(((EX_PropertyConst)expression).Property)); break;
             case EExprToken.EX_StringConst: outputBuilder.Append($"\"{((EX_StringConst)expression).Value}\""); break;
-            case EExprToken.EX_FieldPathConst: ProcessExpression(((EX_FieldPathConst) expression).Value.Token, ((EX_FieldPathConst)expression).Value, outputBuilder); break;
+            case EExprToken.EX_FieldPathConst: ProcessExpression(((EX_FieldPathConst) expression).Value.Token, ((EX_FieldPathConst)expression).Value, outputBuilder, jumpCodeOffsets); break;
             case EExprToken.EX_Int64Const: outputBuilder.Append(((EX_Int64Const)expression).Value.ToString()); break;
             case EExprToken.EX_UInt64Const: outputBuilder.Append(((EX_UInt64Const)expression).Value.ToString()); break;
             case EExprToken.EX_SkipOffsetConst: outputBuilder.Append(((EX_SkipOffsetConst)expression).Value.ToString()); break;
