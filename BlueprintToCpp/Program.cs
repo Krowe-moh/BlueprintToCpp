@@ -27,12 +27,6 @@ public static class Program
 {
     private static bool _isVerse;
     
-    private class StatementInfo
-    {
-        public int Index { get; set; }
-        public int LineNum { get; set; }
-    }
-    
     private static string ProcessTextProperty(FKismetPropertyPointer property)
     {
         if (property.New is null)

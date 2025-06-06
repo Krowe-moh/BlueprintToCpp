@@ -83,6 +83,12 @@ public static class Utils
         return property switch
         {
             FIntProperty => "int",
+            FInt8Property => "int8",
+            FInt16Property => "int16",
+            FInt64Property => "int64",
+            FUInt16Property => "uint16",
+            FUInt32Property => "uint32",
+            FUInt64Property => "uint64",
             FBoolProperty or Boolean => "bool",
             FStrProperty => "FString",
             FFloatProperty or Single => "float",
