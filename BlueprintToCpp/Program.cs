@@ -209,7 +209,7 @@ public static class Program
                                                                     ShouldAppend(
                                                                         $"FVector({vector.X}, {vector.Y}, {vector.Z})");
                                                                 }
-                                                                if (structTag.StructType is FGuid guid)
+                                                                else if (structTag.StructType is FGuid guid)
                                                                 {
                                                                     ShouldAppend(
                                                                         $"FGuid({guid.A}, {guid.B}, {guid.C}, {guid.D})");
@@ -799,7 +799,7 @@ public static class Program
                     for (int i = 0; i < opp.Length; i++)
                     {
                         if (opp.Length > 4)
-                            outputBuilder.Append("\n\t\t");
+                            outputBuilder.Append("\n\t\t\t");
                         ProcessExpression(opp[i].Token, opp[i], outputBuilder, jumpCodeOffsets, true);
                         if (i < opp.Length - 1)
                         {
