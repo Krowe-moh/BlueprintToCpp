@@ -514,7 +514,7 @@ public static class Program
                                                 .ThenBy(f => f.Name.ToString())
                                                 .ToList();
 
-                                            var jumpCodeOffsets = new List<int>();
+                                            var jumpCodeOffsetsMap = new Dictionary<string, List<int>>();
 
                                             foreach (var function in functions.AsEnumerable().Reverse())
                                             {
@@ -523,24 +523,38 @@ public static class Program
 
                                                 foreach (var property in function.ScriptBytecode)
                                                 {
+                                                    string? label = null;
+                                                    int? offset = null;
+
                                                     switch (property.Token)
                                                     {
                                                         case EExprToken.EX_JumpIfNot:
-                                                            jumpCodeOffsets.Add((int) ((EX_JumpIfNot) property).CodeOffset);
+                                                            label = ((EX_JumpIfNot) property).ObjectPath?.ToString()?.Split('.').Last().Split('[')[0];
+                                                            offset = (int) ((EX_JumpIfNot) property).CodeOffset;
                                                             break;
 
                                                         case EExprToken.EX_Jump:
-                                                            jumpCodeOffsets.Add((int) ((EX_Jump) property).CodeOffset);
+                                                            label = ((EX_Jump) property).ObjectPath?.ToString()?.Split('.').Last().Split('[')[0];
+                                                            offset = (int) ((EX_Jump) property).CodeOffset;
                                                             break;
 
                                                         case EExprToken.EX_LocalFinalFunction:
                                                             {
                                                                 EX_FinalFunction op = (EX_FinalFunction) property;
-                                                                var opp = op.Parameters;
-                                                                if (opp.Length == 1 && opp[0] is EX_IntConst intConst)
-                                                                    jumpCodeOffsets.Add(intConst.Value);
+                                                                label = op.StackNode?.Name?.ToString()?.Split('.').Last().Split('[')[0];
+
+                                                                if (op.Parameters.Length == 1 && op.Parameters[0] is EX_IntConst intConst)
+                                                                    offset = intConst.Value;
                                                                 break;
                                                             }
+                                                    }
+
+                                                    if (!string.IsNullOrEmpty(label) && offset.HasValue)
+                                                    {
+                                                        if (!jumpCodeOffsetsMap.TryGetValue(label, out var list))
+                                                            jumpCodeOffsetsMap[label] = list = new List<int>();
+
+                                                        list.Add(offset.Value);
                                                     }
                                                 }
                                             }
@@ -575,10 +589,10 @@ public static class Program
 
                                                 argsList = argsList.TrimEnd(',', ' ');
 
-                                                outputBuilder.AppendLine(
-                                                    $"\n\t{returnFunc} {function.Name.Replace(" ", "")}({argsList})\n\t{{");
+                                                outputBuilder.AppendLine($"\n\t{returnFunc} {function.Name.Replace(" ", "")}({argsList})\n\t{{");
                                                 if (function?.ScriptBytecode != null)
                                                 {
+                                                    var jumpCodeOffsets = jumpCodeOffsetsMap.TryGetValue(function.Name, out var list) ? list : new List<int>();
                                                     foreach (KismetExpression property in function.ScriptBytecode)
                                                     {
                                                         ProcessExpression(property.Token, property, outputBuilder, jumpCodeOffsets);
@@ -590,7 +604,6 @@ public static class Program
                                                         "\n\t // This function does not have Bytecode \n\n");
                                                     outputBuilder.Append("\t}\n");
                                                 }
-                                                jumpCodeOffsets.Clear();
                                             }
 
                                             outputBuilder.Append("\n\n}");
@@ -610,7 +623,8 @@ public static class Program
                                         if (!File.Exists(outputFilePath) || File.ReadAllText(outputFilePath) != updatedOutput)
                                         {
                                             File.WriteAllText(outputFilePath, updatedOutput);
-                                        } else
+                                        }
+                                        else
                                         {
                                             Console.WriteLine($"unchanged {outputFilePath}");
                                         }
@@ -694,11 +708,7 @@ public static class Program
     {
         if (jumpCodeOffsets.Contains(expression.StatementIndex))
         {
-            int length = outputBuilder.Length;
-            if (length == 0 || char.IsWhiteSpace(outputBuilder[length - 1]) && char.IsWhiteSpace(outputBuilder[length - 2]))
-            {
-                outputBuilder.Append("\t\tLabel_" + expression.StatementIndex + ":\n");
-            }
+            outputBuilder.Append("\t\tLabel_" + expression.StatementIndex + ":\n");
         }
         switch (token)
         {
@@ -917,7 +927,7 @@ public static class Program
                         outputBuilder.Append(' ');
                         ProcessExpression(element.Token, element, outputBuilder, jumpCodeOffsets);
 
-                        outputBuilder.Append(i < op.Elements.Length - 1 ? "," : ' ');
+                        outputBuilder.Append(i < op.Elements.Length - 1 ? "," : "");
                     }
 
                     outputBuilder.Append(op.Elements.Length < 1 ? "  " : ' ');
@@ -938,7 +948,7 @@ public static class Program
                         outputBuilder.Append(' ');
                         ProcessExpression(element.Token, element, outputBuilder, jumpCodeOffsets);
 
-                        outputBuilder.Append(i < op.Elements.Length - 1 ? "," : ' ');
+                        outputBuilder.Append(i < op.Elements.Length - 1 ? "," : "");
                     }
 
                     outputBuilder.Append(op.Elements.Length < 1 ? "  " : ' ');
@@ -956,7 +966,7 @@ public static class Program
                         outputBuilder.Append(' ');
                         ProcessExpression(element.Token, element, outputBuilder, jumpCodeOffsets, true);
 
-                        outputBuilder.Append(i < op.Elements.Length - 1 ? "," : ' ');
+                        outputBuilder.Append(i < op.Elements.Length - 1 ? "," : "");
                     }
 
                     outputBuilder.Append(op.Elements.Length < 1 ? "  " : ' ');
