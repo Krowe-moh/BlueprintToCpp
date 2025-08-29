@@ -21,14 +21,14 @@ Powered by [CUE4Parse](https://github.com/FabianFG/CUE4Parse)
 
     Example:
     ```js
-    {
-      "PakFolderPath": "C:/Program Files/Epic Games/Fortnite/FortniteGame/Content/Paks",
-      "BlueprintPath": "FortniteGame/Content/Athena/Cosmetics/Sprays/BP_SprayDecal.uasset",
-      "OodlePath": "C:/Users/krowe/BlueprintToCpp/oo2core_5_win64.dll",
-      "ZlibPath ": "", // leave blank if no zlib compression
-      "UsmapPath": "C:/Users/krowe/BlueprintToCpp/++Fortnite+Release-33.20-CL-39082670-Windows_oo.usmap",
-      "Version": "GAME_UE5_LATEST"
-    }
+{
+  "PakFolderPath": "C:/Program Files/Epic Games/Fortnite/FortniteGame/Content/Paks",
+  "BlueprintPath": "FortniteGame/Plugins/GameFeatures/DebugUI/Content/BP_TextChatV3.uasset",
+  "OodlePath": "C:/Users/krowe/BlueprintToCpp/oo2core_5_win64.dll",
+  "ZlibPath ": "", // leave blank if no zlib compression
+  "UsmapPath": "C:/Users/krowe/BlueprintToCpp/++Fortnite+Release-37.00-CL-44501951-Windows_oo.usmap",
+  "Version": "GAME_UE5_LATEST"
+}
     ```
 
 3. Run `Main.exe` to start the conversion.
@@ -39,9 +39,7 @@ If you want to set up AES, run the program once (with the config set), then modi
 
 ## Output
 
-The decompiled blueprint will be output as `Output.cpp` (this has changed to output as folder hierarchy, will have a option to disable soon).
-
-Note: Currently, this tool does not support all expressions, and the C++ output may not be 100% accurate.
+Note: the C++ output may not be 100% accurate.
 
 ## Issues
 
