@@ -19,17 +19,17 @@ Powered by [CUE4Parse](https://github.com/FabianFG/CUE4Parse)
 
 2. Configure the options in `config.json`:
 
-    Example:
-    ```js
+Example:
+```json
 {
   "PakFolderPath": "C:/Program Files/Epic Games/Fortnite/FortniteGame/Content/Paks",
   "BlueprintPath": "FortniteGame/Plugins/GameFeatures/DebugUI/Content/BP_TextChatV3.uasset",
   "OodlePath": "C:/Users/krowe/BlueprintToCpp/oo2core_5_win64.dll",
-  "ZlibPath ": "", // leave blank if no zlib compression
+  "ZlibPath": "",
   "UsmapPath": "C:/Users/krowe/BlueprintToCpp/++Fortnite+Release-37.00-CL-44501951-Windows_oo.usmap",
   "Version": "GAME_UE5_LATEST"
 }
-    ```
+```
 
 3. Run `Main.exe` to start the conversion.
 
