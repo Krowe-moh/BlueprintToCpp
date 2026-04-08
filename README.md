@@ -24,8 +24,6 @@ Example:
 {
   "PakFolderPath": "C:/Program Files/Epic Games/Fortnite/FortniteGame/Content/Paks",
   "BlueprintPath": "FortniteGame/Plugins/GameFeatures/DebugUI/Content/BP_TextChatV3.uasset",
-  "OodlePath": "C:/Users/krowe/BlueprintToCpp/oo2core_5_win64.dll",
-  "ZlibPath": "",
   "UsmapPath": "C:/Users/krowe/BlueprintToCpp/++Fortnite+Release-37.00-CL-44501951-Windows_oo.usmap",
   "Version": "GAME_UE5_LATEST"
 }

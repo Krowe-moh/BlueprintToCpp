@@ -8,7 +8,6 @@ using CUE4Parse.MappingsProvider;
 using CUE4Parse.UE4.Objects.Core.Misc;
 using CUE4Parse.FileProvider;
 using CUE4Parse.FileProvider.Objects;
-using CUE4Parse.UE4.Assets.Exports;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.Utils;
 
@@ -35,30 +34,8 @@ public static class Program
             string blueprintPath = config.BlueprintPath;
             if (string.IsNullOrEmpty(blueprintPath) || blueprintPath.Length < 1)
             {
-#if TRUE
-                Console.WriteLine(
-                    "No blueprint path specified in the config.json file. Processing all compatible blueprints.");
-#else
-                Console.WriteLine("Please provide a blueprint path in the config.json file.");
-                return;
-#endif
+                Console.WriteLine("No blueprint path specified in the config.json file. Processing all compatible blueprints.");
             }
-
-            string usmapPath = config.UsmapPath;
-            if (string.IsNullOrEmpty(usmapPath) || usmapPath.Length < 1)
-            {
-                Console.WriteLine("Please provide a usmap path in the config.json file.");
-                return;
-            }
-
-            string oodlePath = config.OodlePath;
-            if (string.IsNullOrEmpty(oodlePath) || oodlePath.Length < 1)
-            {
-                Console.WriteLine("Please provide a oodle path in the config.json file.");
-                return;
-            }
-
-            string zlibPath = config.ZlibPath;
 
             EGame version = config.Version;
             if (string.IsNullOrEmpty(version.ToString()) || version.ToString().Length < 1)
@@ -67,15 +44,15 @@ public static class Program
                 return;
             }
 
+            string usmapPath = config.UsmapPath;
             string exeDirectory = AppDomain.CurrentDomain.BaseDirectory;
 
-            var dummyContext = new UObject();
-            var provider = InitializeProvider(pakFolderPath, usmapPath, oodlePath, zlibPath, version);
+            var provider = InitializeProvider(pakFolderPath, usmapPath, version);
             provider.ReadScriptData = true;
             Console.WriteLine("If the game is not fortnite and the game is encrypted, modify aes.json file.");
-            await LoadAesKeysAsync(provider,"https://fortnitecentral.genxgames.gg/api/v1/aes"); // allow users to change the aes url?
+            await LoadAesKeysAsync(provider,"https://export-service-new.dillyapis.com/v1/aes"); // allow users to change the aes url?
 
-            var files = new Dictionary<string, CUE4Parse.FileProvider.Objects.GameFile[]>();
+            var files = new Dictionary<string, GameFile[]>();
 
             bool isFile = provider.Files.ContainsKey(blueprintPath);
             if (string.IsNullOrEmpty(blueprintPath))
@@ -107,9 +84,10 @@ public static class Program
 
             int index = -1;
             int totalGameFiles = files.Sum(kv => kv.Value.Length);
+            Console.WriteLine($"Starting Decompilation of {totalGameFiles} game files.");
 
             // loop from https://github.com/FabianFG/CUE4Parse/blob/master/CUE4Parse.Example/Exporter.cs#L104
-            foreach (var (folder, packages) in files)
+            foreach (var (_, packages) in files)
             {
                 Parallel.ForEach(packages, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, package =>
                 {
@@ -133,7 +111,7 @@ public static class Program
                             if (pointer?.Object?.Value is not UClass blueprint)
                                 continue;
 
-                            cpp.Add(blueprint.DecompileBlueprintToPseudo());
+                            cpp.Add(blueprint.DecompileBlueprintToPseudo(pkg.Mappings));
                         }
 
                         if (cpp.Count > 0)
@@ -149,7 +127,9 @@ public static class Program
                                 cppclean = Regex.Replace(cppclean, "__verse_0x[a-fA-F0-9]{8}_", ""); // UnmangleCasedName
                             }
                             cppclean = Regex.Replace(cppclean, @"CallFunc_([A-Za-z0-9_]+)_ReturnValue", "$1"); // may slow the tool alot
-                            
+                            cppclean = Regex.Replace(cppclean, @"K2Node_DynamicCast_([A-Za-z0-9_]+)", "$1");
+                            cppclean = Regex.Replace(cppclean, @"K2Node_([A-Za-z0-9_]+)", "$1");
+
                             using (var fs = new FileStream(outputFilePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 8192, useAsync: false))
                             using (var writer = new StreamWriter(fs, Encoding.UTF8, bufferSize: 8192))
                             {
@@ -172,19 +152,18 @@ public static class Program
         }
     }
 
-    static DefaultFileProvider InitializeProvider(string pakFolderPath, string usmapPath, string oodlePath, string zlibPath, EGame version)
+    static DefaultFileProvider InitializeProvider(string pakFolderPath, string usmapPath, EGame version)
     {
-        OodleHelper.Initialize(oodlePath);
+        OodleHelper.Initialize(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, OodleHelper.OODLE_NAME_CURRENT));
+        ZlibHelper.Initialize(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ZlibHelper.DLL_NAME));
 
-        if (!string.IsNullOrEmpty(zlibPath) && zlibPath.Length > 0)
+        var provider = new DefaultFileProvider(pakFolderPath, SearchOption.AllDirectories, true, new VersionContainer(version));
+
+        if (!string.IsNullOrEmpty(usmapPath) && usmapPath.Length > 0)
         {
-            ZlibHelper.Initialize(zlibPath);
+            provider.MappingsContainer = new FileUsmapTypeMappingsProvider(usmapPath);
         }
 
-        var provider = new DefaultFileProvider(pakFolderPath, SearchOption.TopDirectoryOnly, true, new VersionContainer(version))
-        {
-            MappingsContainer = new FileUsmapTypeMappingsProvider(usmapPath)
-        };
         provider.Initialize();
 
         return provider;
@@ -226,7 +205,5 @@ public static class Program
                 provider.SubmitKey(new FGuid(guid), new FAesKey(aesKey));
             }
         }
-    
-        aesData = null;
     }
 }
