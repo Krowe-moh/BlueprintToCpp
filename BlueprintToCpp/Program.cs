@@ -15,6 +15,11 @@ namespace Main;
 
 public static class Program
 {
+    private static readonly Regex VerseMangleRegex = new Regex(@"__verse_0x[a-fA-F0-9]{8}_", RegexOptions.Compiled);
+    private static readonly Regex CallFuncRegex = new Regex(@"CallFunc_([A-Za-z0-9_]+)_ReturnValue", RegexOptions.Compiled);
+    private static readonly Regex DynamicCastRegex = new Regex(@"K2Node_DynamicCast_([A-Za-z0-9_]+)", RegexOptions.Compiled);
+    private static readonly Regex K2NodeRegex = new Regex(@"K2Node_([A-Za-z0-9_]+)", RegexOptions.Compiled);
+
     public static async Task Main(string[] args)
     {
         try
@@ -101,34 +106,37 @@ public static class Program
                         Console.WriteLine($"Processing {path} ({currentIndex}/{totalGameFiles})");
 
                         var pkg = provider.LoadPackage(path);
-                        string blueprintDirRel = Path.GetDirectoryName(path)!;
-                        string blueprintDirOutput = Path.Combine(exeDirectory, blueprintDirRel);
 
-                        var cpp = new List<string>();
+                        var cpp = new StringBuilder();
                         for (var i = 0; i < pkg?.ExportMapLength; i++)
                         {
                             var pointer = new FPackageIndex(pkg, i + 1).ResolvedObject;
                             if (pointer?.Object?.Value is not UClass blueprint)
                                 continue;
 
-                            cpp.Add(blueprint.DecompileBlueprintToPseudo(pkg.Mappings));
+                            if (cpp.Length > 0)
+                                cpp.Append("\n\n");
+
+                            cpp.Append(blueprint.DecompileBlueprintToPseudo(pkg.Mappings));
                         }
 
-                        if (cpp.Count > 0)
+                        if (cpp.Length > 0)
                         {
+                            string blueprintDirRel = Path.GetDirectoryName(path)!;
+                            string blueprintDirOutput = Path.Combine(exeDirectory, blueprintDirRel);
                             Directory.CreateDirectory(blueprintDirOutput);
 
                             string outputFile = Path.ChangeExtension(package.Name, ".cpp");
                             string outputFilePath = Path.Combine(blueprintDirOutput, outputFile);
 
-                            var cppclean = cpp.Count > 1 ? string.Join("\n\n", cpp) : cpp.FirstOrDefault() ?? string.Empty;
+                            string cppclean = cpp.ToString();
                             if (path.Contains("_Verse.uasset"))
                             {
-                                cppclean = Regex.Replace(cppclean, "__verse_0x[a-fA-F0-9]{8}_", ""); // UnmangleCasedName
+                                cppclean = VerseMangleRegex.Replace(cppclean, "");
                             }
-                            cppclean = Regex.Replace(cppclean, @"CallFunc_([A-Za-z0-9_]+)_ReturnValue", "$1"); // may slow the tool alot
-                            cppclean = Regex.Replace(cppclean, @"K2Node_DynamicCast_([A-Za-z0-9_]+)", "$1");
-                            cppclean = Regex.Replace(cppclean, @"K2Node_([A-Za-z0-9_]+)", "$1");
+                            cppclean = CallFuncRegex.Replace(cppclean, "$1");
+                            cppclean = DynamicCastRegex.Replace(cppclean, "$1");
+                            cppclean = K2NodeRegex.Replace(cppclean, "$1");
 
                             using (var fs = new FileStream(outputFilePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 8192, useAsync: false))
                             using (var writer = new StreamWriter(fs, Encoding.UTF8, bufferSize: 8192))
