@@ -2,6 +2,8 @@
 
 A tool that converts Unreal Engine Blueprints to C++ code.
 
+Made for reverse engineering blueprint logics from games
+
 Powered by [CUE4Parse](https://github.com/FabianFG/CUE4Parse)
 
 ## Installation
