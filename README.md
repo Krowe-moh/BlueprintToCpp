@@ -37,6 +37,8 @@ Example:
 
 If you want to set up AES, run the program once (with the config set), then modify the `aes.json` file that is created.
 
+This program is hardcoded to Fortnite's aes keys, just modify the created `aes.json` with your game's aes keys
+
 ## Output
 
 Note: the C++ output may not be 100% accurate.

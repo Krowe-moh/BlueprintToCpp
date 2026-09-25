@@ -46,13 +46,13 @@ public static class Program
 
         if (string.IsNullOrEmpty(config.PakFolderPath))
         {
-            Console.WriteLine($"Set PakFolderPath in {ConfigFile}.");
+            Console.WriteLine($"Set Pak Folder Path in {ConfigFile}.");
             return;
         }
 
         if (config.Version == 0)
         {
-            Console.WriteLine($"Set Version in {ConfigFile}.");
+            Console.WriteLine($"Set UEVersion in {ConfigFile}.");
             return;
         }
 
@@ -62,7 +62,7 @@ public static class Program
         GameFile[] packages = SelectPackages(provider, config.BlueprintPath).ToArray();
         if (packages.Length == 0)
         {
-            Console.WriteLine("No packages matched BlueprintPath.");
+            Console.WriteLine("No packages matched provided Blueprint Path.");
             return;
         }
 
