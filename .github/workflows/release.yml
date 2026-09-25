@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  detect:
+    name: Detect version bump
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version from Main.csproj
+        id: check
+        run: |
+          set -euo pipefail
+          project=BlueprintToCpp/Main.csproj
+          before='${{ github.event.before }}'
+
+          version() {
+            git show "$1:$project" 2>/dev/null |
+              sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' |
+              head -n 1
+          }
+
+          current="$(version HEAD)"
+          if [ -z "$current" ]; then
+            echo "::error::$project has no <Version> element"
+            exit 1
+          fi
+
+          if [ -n "$before" ] && [ "$current" = "$(version "$before")" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Version unchanged at $current."
+            exit 0
+          fi
+
+          if gh release view "$current" >/dev/null 2>&1; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Release $current already exists."
+            exit 0
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "version=$current" >> "$GITHUB_OUTPUT"
+          echo "Releasing $current."
+
+  release:
+    name: Publish ${{ needs.detect.outputs.version }}
+    needs: detect
+    if: needs.detect.outputs.changed == 'true'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Publish
+        shell: pwsh
+        run: |
+          dotnet publish BlueprintToCpp/Main.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            --output publish `
+            -p:Version=${{ needs.detect.outputs.version }} `
+            -p:ContinuousIntegrationBuild=true
+
+          if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
+
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          $version = '${{ needs.detect.outputs.version }}'
+          $staging = "BlueprintToCpp-$version-win-x64"
+
+          if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
+          Rename-Item publish $staging
+          Compress-Archive -Path $staging -DestinationPath "$staging.zip" -Force
+
+          "asset=$staging.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Publish release
+        shell: pwsh
+        run: |
+          $version = '${{ needs.detect.outputs.version }}'
+          gh release create $version `
+            --target $env:GITHUB_SHA `
+            --title $version `
+            '${{ steps.package.outputs.asset }}'

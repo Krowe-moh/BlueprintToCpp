@@ -1,217 +1,202 @@
 using System.Text;
 using System.Text.RegularExpressions;
-using Newtonsoft.Json.Linq;
-using CUE4Parse.Encryption.Aes;
-using CUE4Parse.UE4.Versions;
 using CUE4Parse.Compression;
-using CUE4Parse.MappingsProvider;
-using CUE4Parse.UE4.Objects.Core.Misc;
+using CUE4Parse.Encryption.Aes;
 using CUE4Parse.FileProvider;
 using CUE4Parse.FileProvider.Objects;
+using CUE4Parse.MappingsProvider.Usmap;
+using CUE4Parse.UE4.Assets;
+using CUE4Parse.UE4.Assets.Exports;
+using CUE4Parse.UE4.Objects.Core.Misc;
 using CUE4Parse.UE4.Objects.UObject;
-using CUE4Parse.Utils;
+using CUE4Parse.UE4.Versions;
+using Newtonsoft.Json.Linq;
+using Serilog;
+using Serilog.Sinks.SystemConsole.Themes;
 
-namespace Main;
+namespace BlueprintToCpp;
 
 public static class Program
 {
-    private static readonly Regex VerseMangleRegex = new Regex(@"__verse_0x[a-fA-F0-9]{8}_", RegexOptions.Compiled);
-    private static readonly Regex CallFuncRegex = new Regex(@"CallFunc_([A-Za-z0-9_]+)_ReturnValue", RegexOptions.Compiled);
-    private static readonly Regex DynamicCastRegex = new Regex(@"K2Node_DynamicCast_([A-Za-z0-9_]+)", RegexOptions.Compiled);
-    private static readonly Regex K2NodeRegex = new Regex(@"K2Node_([A-Za-z0-9_]+)", RegexOptions.Compiled);
+    private const string ConfigFile = "config.json";
+    private const string AesCacheFile = "aes.json";
+    private const string AesUrl = "https://export-service-new.dillyapis.com/v1/aes";
 
-    public static async Task Main(string[] args)
+    // Fortnite: slow for some reason
+    private static readonly string[] Ignored =
+    [
+        "/PPID_",
+        "/VKTemplates",
+        "/NaniteDisplacedMesh_"
+    ];
+
+    private static readonly Regex VerseMangleRegex = new(@"__verse_0x[a-fA-F0-9]{8}_", RegexOptions.Compiled);
+    private static readonly Regex CallFuncRegex = new(@"CallFunc_([A-Za-z0-9_]+)_ReturnValue", RegexOptions.Compiled);
+    private static readonly Regex DynamicCastRegex = new(@"K2Node_DynamicCast_([A-Za-z0-9_]+)", RegexOptions.Compiled);
+    private static readonly Regex K2NodeRegex = new(@"K2Node_([A-Za-z0-9_]+)", RegexOptions.Compiled);
+
+    private static readonly ParallelOptions ProcessingOptions = new() { MaxDegreeOfParallelism = Environment.ProcessorCount };
+
+    public static async Task Main()
     {
-        try
-        {
 #if DEBUG
-            //Log.Logger = new LoggerConfiguration().WriteTo.Console(theme: AnsiConsoleTheme.Literate).CreateLogger();
+        Log.Logger = new LoggerConfiguration().WriteTo.Console(theme: AnsiConsoleTheme.Literate).CreateLogger();
 #endif
-            var config = Utils.LoadConfig("config.json");
+        Config config = ConfigLoader.Load(ConfigFile);
 
-            string pakFolderPath = config.PakFolderPath;
-            if (string.IsNullOrEmpty(pakFolderPath) || pakFolderPath.Length < 1)
-            {
-                Console.WriteLine("Please provide a pak folder path in the config.json file.");
-                return;
-            }
-
-            string blueprintPath = config.BlueprintPath;
-            if (string.IsNullOrEmpty(blueprintPath) || blueprintPath.Length < 1)
-            {
-                Console.WriteLine("No blueprint path specified in the config.json file. Processing all compatible blueprints.");
-            }
-
-            EGame version = config.Version;
-            if (string.IsNullOrEmpty(version.ToString()) || version.ToString().Length < 1)
-            {
-                Console.WriteLine("Please provide a UE version in the config.json file.");
-                return;
-            }
-
-            string usmapPath = config.UsmapPath;
-            string exeDirectory = AppDomain.CurrentDomain.BaseDirectory;
-
-            var provider = InitializeProvider(pakFolderPath, usmapPath, version);
-            provider.ReadScriptData = true;
-            Console.WriteLine("If the game is not fortnite and the game is encrypted, modify aes.json file.");
-            await LoadAesKeysAsync(provider,"https://export-service-new.dillyapis.com/v1/aes"); // allow users to change the aes url?
-
-            var files = new Dictionary<string, GameFile[]>();
-
-            bool isFile = provider.Files.ContainsKey(blueprintPath);
-            if (string.IsNullOrEmpty(blueprintPath))
-            {
-                files = provider.Files.Values
-                    .Where(f => (f.Path.EndsWith(".uasset") || f.Path.EndsWith(".umap")) && !f.Path.Contains(".o.") && !f.Path.Contains("PPID_") && !f.Path.Contains("/VKTemplates") && !f.Path.Contains("/NaniteDisplacedMesh_"))
-                    .GroupBy(f => f.Path.SubstringBeforeLast('/'))
-                    .ToDictionary(g => g.Key, g => g.ToArray());
-            }
-            else if (isFile)
-            {
-                files = new Dictionary<string, GameFile[]>
-                {
-                    [blueprintPath] = new[] { provider.Files[blueprintPath] }
-                };
-            }
-            else
-            {
-                files = provider.Files.Values
-                    .Where(f => f.Path.StartsWith(blueprintPath + "/") &&
-                                (f.Path.EndsWith(".uasset") || f.Path.EndsWith(".umap")) &&
-                                !f.Path.Contains(".o.") &&
-                                !f.Path.Contains("/PPID_") && // ignore these (fortnite, it slows the program by like 10x)
-                                !f.Path.Contains("/VKTemplates") &&
-                                !f.Path.Contains("/NaniteDisplacedMesh_"))
-                    .GroupBy(f => f.Path.SubstringBeforeLast('/'))
-                    .ToDictionary(g => g.Key, g => g.ToArray());
-            }
-
-            int index = -1;
-            int totalGameFiles = files.Sum(kv => kv.Value.Length);
-            Console.WriteLine($"Starting Decompilation of {totalGameFiles} game files.");
-
-            // loop from https://github.com/FabianFG/CUE4Parse/blob/master/CUE4Parse.Example/Exporter.cs#L104
-            foreach (var (_, packages) in files)
-            {
-                Parallel.ForEach(packages, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, package =>
-                {
-                    try
-                    {
-                        if (!package.IsUePackage)
-                            return;
-                        int currentIndex = Interlocked.Increment(ref index);
-                        string path = package.Path;
-
-                        Console.WriteLine($"Processing {path} ({currentIndex}/{totalGameFiles})");
-
-                        var pkg = provider.LoadPackage(path);
-
-                        var cpp = new StringBuilder();
-                        for (var i = 0; i < pkg?.ExportMapLength; i++)
-                        {
-                            var pointer = new FPackageIndex(pkg, i + 1).ResolvedObject;
-                            if (pointer?.Object?.Value is not UClass blueprint)
-                                continue;
-
-                            if (cpp.Length > 0)
-                                cpp.Append("\n\n");
-
-                            cpp.Append(blueprint.DecompileBlueprintToPseudo(pkg.Mappings));
-                        }
-
-                        if (cpp.Length > 0)
-                        {
-                            string blueprintDirRel = Path.GetDirectoryName(path)!;
-                            string blueprintDirOutput = Path.Combine(exeDirectory, blueprintDirRel);
-                            Directory.CreateDirectory(blueprintDirOutput);
-
-                            string outputFile = Path.ChangeExtension(package.Name, ".cpp");
-                            string outputFilePath = Path.Combine(blueprintDirOutput, outputFile);
-
-                            string cppclean = cpp.ToString();
-                            if (path.Contains("_Verse.uasset"))
-                            {
-                                cppclean = VerseMangleRegex.Replace(cppclean, "");
-                            }
-                            cppclean = CallFuncRegex.Replace(cppclean, "$1");
-                            cppclean = DynamicCastRegex.Replace(cppclean, "$1");
-                            cppclean = K2NodeRegex.Replace(cppclean, "$1");
-
-                            using (var fs = new FileStream(outputFilePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 8192, useAsync: false))
-                            using (var writer = new StreamWriter(fs, Encoding.UTF8, bufferSize: 8192))
-                            {
-                                writer.Write(cppclean);
-                                writer.Flush();
-                            }
-                            Console.WriteLine($"Output written to: {outputFilePath}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Error Processing: {package.Path} {ex.Message}\n{ex.StackTrace}");
-                    }
-                });
-            }
-        }
-        catch (Exception ex)
+        if (string.IsNullOrEmpty(config.PakFolderPath))
         {
-            Console.WriteLine($"An error occurred: {ex.Message}\n{ex.StackTrace}");
+            Console.WriteLine($"Set PakFolderPath in {ConfigFile}.");
+            return;
         }
+
+        if (config.Version == 0)
+        {
+            Console.WriteLine($"Set Version in {ConfigFile}.");
+            return;
+        }
+
+        DefaultFileProvider provider = CreateProvider(config);
+        await LoadAesKeysAsync(provider);
+
+        GameFile[] packages = SelectPackages(provider, config.BlueprintPath).ToArray();
+        if (packages.Length == 0)
+        {
+            Console.WriteLine("No packages matched BlueprintPath.");
+            return;
+        }
+
+        Console.WriteLine($"Decompiling {packages.Length} packages.");
+
+        string outputRoot = AppContext.BaseDirectory;
+        int decompiled = 0;
+
+        Parallel.ForEach(packages, ProcessingOptions, package =>
+        {
+            try
+            {
+                WritePseudoCode(provider, package, outputRoot, Interlocked.Increment(ref decompiled), packages.Length);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"{package.Path}: {ex.Message}");
+            }
+        });
     }
 
-    static DefaultFileProvider InitializeProvider(string pakFolderPath, string usmapPath, EGame version)
+    private static DefaultFileProvider CreateProvider(Config config)
     {
-        OodleHelper.Initialize(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, OodleHelper.OODLE_NAME_CURRENT));
-        ZlibHelper.Initialize(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ZlibHelper.DLL_NAME));
+        OodleHelper.Initialize();
+        ZlibHelper.Initialize();
 
-        var provider = new DefaultFileProvider(pakFolderPath, SearchOption.AllDirectories, true, new VersionContainer(version));
-
-        if (!string.IsNullOrEmpty(usmapPath) && usmapPath.Length > 0)
+        var provider = new DefaultFileProvider(
+            config.PakFolderPath,
+            SearchOption.AllDirectories,
+            new VersionContainer(config.Version),
+            StringComparer.OrdinalIgnoreCase)
         {
-            provider.MappingsContainer = new FileUsmapTypeMappingsProvider(usmapPath);
+            ReadScriptData = true
+        };
+
+        if (!string.IsNullOrEmpty(config.UsmapPath))
+        {
+            provider.MappingsContainer = new FileUsmapTypeMappingsProvider(config.UsmapPath);
         }
 
         provider.Initialize();
-
         return provider;
     }
 
-    static async Task LoadAesKeysAsync(DefaultFileProvider provider, string aesUrl)
+    private static async Task LoadAesKeysAsync(DefaultFileProvider provider)
     {
-        string cacheFilePath = "aes.json";
+        string aesJson = File.Exists(AesCacheFile) ? await File.ReadAllTextAsync(AesCacheFile) : await DownloadAesJsonAsync();
+        var keys = new Dictionary<FGuid, FAesKey>();
 
-        if (File.Exists(cacheFilePath))
+        JObject aes = JObject.Parse(aesJson);
+        keys[new FGuid()] = new FAesKey(aes["mainKey"]?.ToString() ?? string.Empty);
+
+        foreach (JObject dynamicKey in aes["dynamicKeys"]?.Children<JObject>() ?? [])
         {
-            string cachedAesJson = await File.ReadAllTextAsync(cacheFilePath);
-            LoadAesKeysFromJson(provider, cachedAesJson);
-        }
-        else
-        {
-            using var httpClient = new HttpClient();
-            string aesJson = await httpClient.GetStringAsync(aesUrl);
-            await File.WriteAllTextAsync(cacheFilePath, aesJson);
-            LoadAesKeysFromJson(provider, aesJson);
-        }
-
-        provider.PostMount();
-        //provider.LoadLocalization();
-    }
-
-    private static void LoadAesKeysFromJson(DefaultFileProvider provider, string aesJson)
-    {
-        var aesData = JObject.Parse(aesJson);
-        string mainKey = aesData["mainKey"]?.ToString() ?? string.Empty;
-        provider.SubmitKey(new FGuid(), new FAesKey(mainKey));
-
-        foreach (var key in aesData["dynamicKeys"]?.ToObject<JArray>() ?? new JArray())
-        {
-            var guid = key["guid"]?.ToString();
-            var aesKey = key["key"]?.ToString();
-            if (!string.IsNullOrEmpty(guid) && !string.IsNullOrEmpty(aesKey))
+            if (Guid.TryParse(dynamicKey["guid"]?.ToString(), out Guid guid) && dynamicKey["key"]?.ToString() is { Length: > 0 } key)
             {
-                provider.SubmitKey(new FGuid(guid), new FAesKey(aesKey));
+                keys[new FGuid(guid.ToString("N"))] = new FAesKey(key);
             }
         }
+
+        provider.SubmitKeys(keys);
+        provider.PostMount();
+    }
+
+    private static async Task<string> DownloadAesJsonAsync()
+    {
+        using var http = new HttpClient();
+        string aesJson = await http.GetStringAsync(AesUrl);
+        await File.WriteAllTextAsync(AesCacheFile, aesJson);
+        return aesJson;
+    }
+
+    private static IEnumerable<GameFile> SelectPackages(DefaultFileProvider provider, string blueprintPath)
+    {
+        if (!string.IsNullOrEmpty(blueprintPath) && provider.TryGetGameFile(blueprintPath, out GameFile? exactMatch) && exactMatch is not null)
+        {
+            return [exactMatch];
+        }
+
+        string prefix = string.IsNullOrEmpty(blueprintPath) ? string.Empty : blueprintPath + "/";
+
+        return provider.Files.Values.Where(file =>
+            file.Path.StartsWith(prefix, StringComparison.Ordinal) &&
+            (file.Path.EndsWith(".uasset", StringComparison.Ordinal) || file.Path.EndsWith(".umap", StringComparison.Ordinal)) &&
+            !file.Path.Contains(".o.", StringComparison.Ordinal) &&
+            !Ignored.Any(segment => file.Path.Contains(segment, StringComparison.Ordinal)));
+    }
+
+    private static void WritePseudoCode(DefaultFileProvider provider, GameFile package, string outputRoot, int current, int total)
+    {
+        string path = package.Path;
+        Console.WriteLine($"Processing {path} ({current}/{total})");
+
+        IPackage pkg = provider.LoadPackage(package);
+        var pseudoCode = new StringBuilder();
+
+        foreach (UObject export in pkg.GetExports())
+        {
+            if (export is not UClass blueprint)
+            {
+                continue;
+            }
+
+            if (pseudoCode.Length > 0)
+            {
+                pseudoCode.Append("\n\n");
+            }
+
+            pseudoCode.Append(blueprint.DecompileBlueprintToPseudo());
+        }
+
+        if (pseudoCode.Length == 0)
+        {
+            return;
+        }
+
+        string outputDirectory = Path.Combine(outputRoot, Path.GetDirectoryName(path.TrimStart('/')) ?? string.Empty);
+        Directory.CreateDirectory(outputDirectory);
+
+        string outputPath = Path.Combine(outputDirectory, Path.ChangeExtension(package.Name, ".cpp"));
+        File.WriteAllText(outputPath, RemoveEnginePrefixes(path, pseudoCode.ToString()));
+
+        Console.WriteLine($"Wrote {outputPath}");
+    }
+
+    private static string RemoveEnginePrefixes(string packagePath, string pseudoCode)
+    {
+        if (packagePath.Contains("_Verse.uasset", StringComparison.Ordinal))
+        {
+            pseudoCode = VerseMangleRegex.Replace(pseudoCode, string.Empty);
+        }
+
+        pseudoCode = CallFuncRegex.Replace(pseudoCode, "$1");
+        pseudoCode = DynamicCastRegex.Replace(pseudoCode, "$1");
+        return K2NodeRegex.Replace(pseudoCode, "$1");
     }
 }

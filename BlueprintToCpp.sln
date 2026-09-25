@@ -7,8 +7,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Main", "BlueprintToCpp\Main
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CUE4Parse", "CUE4Parse\CUE4Parse\CUE4Parse.csproj", "{7FE81A48-6CF5-4CA4-A985-8BD436A4775A}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CUE4Parse-Conversion", "CUE4Parse\CUE4Parse-Conversion\CUE4Parse-Conversion.csproj", "{747BEB00-B43C-4FDF-B5AB-08408B7042DB}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -23,10 +21,6 @@ Global
 		{7FE81A48-6CF5-4CA4-A985-8BD436A4775A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7FE81A48-6CF5-4CA4-A985-8BD436A4775A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7FE81A48-6CF5-4CA4-A985-8BD436A4775A}.Release|Any CPU.Build.0 = Release|Any CPU
-		{747BEB00-B43C-4FDF-B5AB-08408B7042DB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{747BEB00-B43C-4FDF-B5AB-08408B7042DB}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{747BEB00-B43C-4FDF-B5AB-08408B7042DB}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{747BEB00-B43C-4FDF-B5AB-08408B7042DB}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

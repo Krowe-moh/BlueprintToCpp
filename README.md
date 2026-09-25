@@ -2,7 +2,7 @@
 
 A tool that converts Unreal Engine Blueprints to C++ code.
 
-Made for reverse engineering blueprint logics from games
+Made for reverse engineering blueprint logics from games.
 
 Powered by [CUE4Parse](https://github.com/FabianFG/CUE4Parse)
 
@@ -13,7 +13,7 @@ Powered by [CUE4Parse](https://github.com/FabianFG/CUE4Parse)
     git clone https://github.com/Krowe-moh/BlueprintToCpp.git --recursive
     ```
 
-2. Open the solution file in your IDE and build the project.
+2. Open `BlueprintToCpp.sln` in your IDE and build the project.
 
 ## Usage
 
@@ -26,8 +26,8 @@ Example:
 {
   "PakFolderPath": "C:/Program Files/Epic Games/Fortnite/FortniteGame/Content/Paks",
   "BlueprintPath": "FortniteGame/Plugins/GameFeatures/DebugUI/Content/BP_TextChatV3.uasset",
-  "UsmapPath": "C:/Users/krowe/BlueprintToCpp/++Fortnite+Release-37.00-CL-44501951-Windows_oo.usmap",
-  "Version": "GAME_UE5_LATEST"
+  "UsmapPath": "C:/Users/krowe/BlueprintToCpp/++Fortnite+Release-42.20-CL-58011042-Windows_oo.usmap",
+  "Version": "GAME_UE6_LATEST"
 }
 ```
 
